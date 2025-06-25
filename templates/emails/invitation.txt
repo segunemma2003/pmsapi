@@ -1,0 +1,18 @@
+🏠 Welcome to OnlyIfYouKnow - Your Trusted Property Network
+
+Hi {{ invitee_name }},
+
+You've been personally invited by {{ inviter_name }} to join OnlyIfYouKnow as a {{ invitation_type }}!
+
+{% if personal_message %}
+Personal message from {{ inviter_name }}: "{{ personal_message }}"
+{% endif %}
+
+Ready to join? Click here: {{ invitation_url }}
+
+Best regards,
+The OnlyIfYouKnow Team
+
+---
+This invitation was sent to {{ email }}
+© 2025 OnlyIfYouKnow. All rights reserved.

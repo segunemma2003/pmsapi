@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>You're Invited to a Trusted Network</title>
+  </head>
+  <body
+    style="
+      font-family: Arial, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      max-width: 600px;
+      margin: 0 auto;
+      background-color: #f8f9fa;
+    "
+  >
+    <div
+      style="
+        background-color: white;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      "
+    >
+      <div
+        style="
+          background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+          color: white;
+          padding: 40px 30px;
+          text-align: center;
+        "
+      >
+        <h1 style="margin: 0; font-size: 28px; font-weight: 700">
+          🏠 Trusted Network Invitation
+        </h1>
+        <p style="margin: 8px 0 0 0; font-size: 16px; opacity: 0.9">
+          You're invited to join an exclusive property network
+        </p>
+      </div>
+
+      <div style="padding: 40px 30px">
+        <h2>Hi {{ invitee_name }},</h2>
+
+        <p>
+          Great news! <strong>{{ owner_name }}</strong> has personally invited
+          you to join their trusted network on OnlyIfYouKnow.
+        </p>
+
+        <div style="text-align: center; margin: 30px 0">
+          <div
+            style="
+              display: inline-block;
+              background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+              color: white;
+              padding: 8px 16px;
+              border-radius: 20px;
+              font-weight: 600;
+              font-size: 14px;
+              margin: 10px 0;
+            "
+          >
+            Level {{ trust_level }} • {{ discount_percentage }}% Discount
+          </div>
+        </div>
+
+        {% if personal_message %}
+        <div
+          style="
+            background-color: #eef2ff;
+            border-left: 4px solid #4f46e5;
+            padding: 20px;
+            margin: 25px 0;
+            border-radius: 4px;
+          "
+        >
+          <strong>Personal message from {{ owner_name }}:</strong><br />"{{
+          personal_message }}"
+        </div>
+        {% endif %}
+
+        <div
+          style="
+            background-color: #f7fafc;
+            padding: 25px;
+            border-radius: 8px;
+            margin: 25px 0;
+          "
+        >
+          <h3>🌟 Your Trust Network Benefits:</h3>
+          <ul>
+            <li>
+              🏠 <strong>Exclusive Access:</strong> Book {{ owner_name }}'s
+              properties with special privileges
+            </li>
+            <li>
+              💰 <strong>{{ discount_percentage }}% Discount:</strong> Save on
+              all your stays
+            </li>
+            <li>
+              ⚡ <strong>Priority Booking:</strong> Get first access to
+              availability
+            </li>
+            <li>
+              🤝 <strong>Personal Touch:</strong> Direct communication with the
+              property owner
+            </li>
+            <li>
+              🛡️ <strong>Trust-Based:</strong> Part of a curated,
+              invitation-only network
+            </li>
+          </ul>
+        </div>
+
+        <div style="text-align: center; margin: 40px 0">
+          <p><strong>Ready to join the network?</strong></p>
+          <a
+            href="{{ invitation_url }}"
+            style="
+              display: inline-block;
+              background: #4f46e5;
+              color: white;
+              padding: 16px 32px;
+              text-decoration: none;
+              border-radius: 8px;
+              font-weight: 600;
+              font-size: 16px;
+              margin: 20px 0;
+            "
+            >✨ Accept Invitation</a
+          >
+        </div>
+
+        <p>Best regards,<br /><strong>The OnlyIfYouKnow Team</strong></p>
+      </div>
+
+      <div
+        style="
+          background-color: #f7fafc;
+          padding: 30px;
+          text-align: center;
+          font-size: 14px;
+          color: #718096;
+          border-top: 1px solid #e2e8f0;
+        "
+      >
+        <p>This invitation was sent to <strong>{{ email }}</strong></p>
+        <p>© 2025 OnlyIfYouKnow. All rights reserved.</p>
+      </div>
+    </div>
+  </body>
+</html>
