@@ -59,6 +59,19 @@ class Property(models.Model):
     )
     rejection_reason = models.TextField(blank=True)
     
+    # iCal Integration Fields
+    ical_import_url = models.URLField(blank=True, help_text="URL to import external bookings")
+    ical_export_url = models.URLField(blank=True, help_text="URL for other platforms to import our bookings")
+    ical_sync_enabled = models.BooleanField(default=True)
+    ical_last_sync = models.DateTimeField(null=True, blank=True)
+    ical_sync_status = models.CharField(max_length=50, blank=True)
+    ical_external_calendars = models.JSONField(default=list, blank=True)  # List of external calendar URLs
+    
+    # Sync Settings
+    ical_sync_interval = models.PositiveIntegerField(default=3600)  # Sync interval in seconds
+    ical_auto_block = models.BooleanField(default=True)  # Auto-block imported dates
+    ical_timezone = models.CharField(max_length=50, default='UTC')
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -100,3 +113,43 @@ class Property(models.Model):
             return round(discounted_price, 2)
         
         return self.price_per_night
+    
+    def get_ical_urls(self):
+        """Get iCal URLs from Beds24"""
+        if not self.beds24_property_id:
+            return None
+        
+        from beds24_integration.services import Beds24Service
+        beds24_service = Beds24Service()
+        return beds24_service.get_property_ical_urls(self.beds24_property_id)
+    
+    
+class PropertyICalSync(models.Model):
+    """Track iCal sync operations"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    property = models.ForeignKey(Property, on_delete=models.CASCADE, related_name='ical_syncs')
+    sync_type = models.CharField(max_length=20, choices=[
+        ('import', 'Import'),
+        ('export', 'Export'),
+        ('bidirectional', 'Bidirectional')
+    ])
+    external_calendar_url = models.URLField(blank=True)
+    external_calendar_name = models.CharField(max_length=255, blank=True)
+    sync_status = models.CharField(max_length=20, choices=[
+        ('pending', 'Pending'),
+        ('running', 'Running'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed')
+    ], default='pending')
+    bookings_imported = models.PositiveIntegerField(default=0)
+    bookings_exported = models.PositiveIntegerField(default=0)
+    error_message = models.TextField(blank=True)
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    
+    class Meta:
+        db_table = 'property_ical_syncs'
+        indexes = [
+            models.Index(fields=['property', 'sync_status']),
+            models.Index(fields=['started_at']),
+        ]

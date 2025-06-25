@@ -32,6 +32,7 @@ LOCAL_APPS = [
     'trust_levels',
     'beds24_integration',
     'analytics',
+    'health'
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -73,9 +74,9 @@ WSGI_APPLICATION = 'pms.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config('DB_NAME'),
-        'USER': config('DB_USER'),
-        'PASSWORD': config('DB_PASSWORD'),
+        'NAME': config('DB_NAME', 'pms'),
+        'USER': config('DB_USER', 'postgres'),
+        'PASSWORD': config('DB_PASSWORD', 'postgres'),
         'HOST': config('DB_HOST', default='localhost'),
         'PORT': config('DB_PORT', default='5432'),
         'CONN_MAX_AGE': 60,
@@ -94,10 +95,10 @@ DATABASES = {
 if not DEBUG:
     DATABASES['replica'] = {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config('DB_REPLICA_NAME'),
-        'USER': config('DB_REPLICA_USER'),
-        'PASSWORD': config('DB_REPLICA_PASSWORD'),
-        'HOST': config('DB_REPLICA_HOST'),
+        'NAME': config('DB_REPLICA_NAME', 'pms'),
+        'USER': config('DB_REPLICA_USER', 'postgres'),
+        'PASSWORD': config('DB_REPLICA_PASSWORD', 'postgres'),
+        'HOST': config('DB_REPLICA_HOST', 'localhost'),
         'PORT': config('DB_REPLICA_PORT', default='5432'),
         'CONN_MAX_AGE': 60,
         'OPTIONS': {

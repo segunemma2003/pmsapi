@@ -21,6 +21,7 @@ router.register(r'analytics', AnalyticsViewSet, basename='analytics')
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include(router.urls)),
+    path('api/properties/<uuid:pk>/ical/', PropertyViewSet.as_view({'get': 'ical_export'}), name='property-ical'),
     path('api/auth/', include('djoser.urls')),
     path('api/auth/', include('djoser.urls.jwt')),
 ]

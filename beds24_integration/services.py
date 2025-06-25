@@ -3,6 +3,9 @@ import json
 from django.conf import settings
 from django.core.cache import cache
 from datetime import datetime, timedelta
+from icalendar import Calendar, Event
+from django.utils import timezone
+import uuid
 
 class Beds24Service:
     def __init__(self):
@@ -45,34 +48,26 @@ class Beds24Service:
             cache.set('beds24_access_token', {
                 'token': self.access_token,
                 'expiry': self.token_expiry
-            }, timeout=auth_data['expiresIn'] - 120)  # Cache for 2 minutes less than expiry
+            }, timeout=auth_data['expiresIn'] - 120)
             
             return self.access_token
             
         except requests.RequestException as e:
             raise Exception(f"Failed to authenticate with Beds24: {str(e)}")
     
-    def create_subaccount(self, user):
-        """Create Beds24 subaccount for owner"""
+    # ===== iCal INTEGRATION METHODS =====
+    
+    def get_property_ical_urls(self, beds24_property_id):
+        """Get iCal URLs for a Beds24 property"""
         token = self.get_access_token()
         
-        subaccount_data = {
-            'name': user.full_name or user.email,
-            'email': user.email,
-            'currency': 'USD',
-            'language': 'en',
-            'timezone': 'UTC'
-        }
-        
         try:
-            response = requests.post(
-                f"{self.base_url}/subaccounts",
+            response = requests.get(
+                f"{self.base_url}/properties/{beds24_property_id}/ical",
                 headers={
-                    'Content-Type': 'application/json',
                     'accept': 'application/json',
                     'token': token
                 },
-                json=subaccount_data,
                 timeout=30
             )
             response.raise_for_status()
@@ -80,98 +75,160 @@ class Beds24Service:
             result = response.json()
             return {
                 'success': True,
-                'subaccount_id': str(result['id']),
+                'ical_urls': {
+                    'import_url': result.get('importUrl'),  # URL to import bookings TO Beds24
+                    'export_url': result.get('exportUrl'),  # URL to export bookings FROM Beds24
+                    'sync_url': result.get('syncUrl')       # Bidirectional sync URL
+                },
                 'data': result
             }
             
         except requests.RequestException as e:
             return {
                 'success': False,
-                'error': f"Failed to create Beds24 subaccount: {str(e)}"
+                'error': f"Failed to get iCal URLs: {str(e)}"
             }
     
-    def create_property(self, property_obj):
-        """Create property on Beds24"""
+    def update_property_ical_settings(self, beds24_property_id, ical_settings):
+        """Update iCal sync settings for a property"""
         token = self.get_access_token()
         
-        property_data = {
-            'name': property_obj.title,
-            'propertyType': self._map_property_type('house'),
-            'currency': 'USD',
-            'country': property_obj.country or 'USA',
-            'state': property_obj.state,
-            'city': property_obj.city,
-            'address': property_obj.address,
-            'postalCode': property_obj.postal_code,
-            'latitude': float(property_obj.latitude) if property_obj.latitude else None,
-            'longitude': float(property_obj.longitude) if property_obj.longitude else None,
-            'description': property_obj.description,
-            'maxOccupancy': property_obj.max_guests,
-            'roomTypes': [{
-                'name': f"{property_obj.title} - Main Unit",
-                'qty': 1,
-                'minPrice': float(property_obj.price_per_night),
-                'maxOccupancy': property_obj.max_guests,
-                'bedrooms': property_obj.bedrooms,
-                'bathrooms': property_obj.bathrooms
-            }]
+        # Default iCal settings
+        default_settings = {
+            'icalImport': True,          # Allow importing from external calendars
+            'icalExport': True,          # Allow exporting to external calendars
+            'icalAutoBlock': True,       # Auto-block dates from imported bookings
+            'icalSyncPeriod': 24,        # Sync every 24 hours
+            'icalPastDays': 30,          # Include past 30 days
+            'icalFutureDays': 365,       # Include next 365 days
+            'icalTimeZone': 'UTC'        # Time zone for iCal events
         }
         
+        # Merge with provided settings
+        settings_data = {**default_settings, **ical_settings}
+        
         try:
-            response = requests.post(
-                f"{self.base_url}/properties",
+            response = requests.put(
+                f"{self.base_url}/properties/{beds24_property_id}/ical",
                 headers={
                     'Content-Type': 'application/json',
                     'accept': 'application/json',
                     'token': token
                 },
-                json=[property_data],  # Beds24 expects an array
+                json=settings_data,
+                timeout=30
+            )
+            response.raise_for_status()
+            
+            return {
+                'success': True,
+                'message': 'iCal settings updated successfully'
+            }
+            
+        except requests.RequestException as e:
+            return {
+                'success': False,
+                'error': f"Failed to update iCal settings: {str(e)}"
+            }
+    
+    def import_external_ical(self, beds24_property_id, ical_url, calendar_name="External Calendar"):
+        """Import external iCal feed into Beds24 property"""
+        token = self.get_access_token()
+        
+        import_data = {
+            'icalUrl': ical_url,
+            'calendarName': calendar_name,
+            'autoSync': True,
+            'blockDates': True,  # Block dates from external calendar
+            'syncInterval': 3600  # Sync every hour
+        }
+        
+        try:
+            response = requests.post(
+                f"{self.base_url}/properties/{beds24_property_id}/ical/import",
+                headers={
+                    'Content-Type': 'application/json',
+                    'accept': 'application/json',
+                    'token': token
+                },
+                json=import_data,
                 timeout=30
             )
             response.raise_for_status()
             
             result = response.json()
-            if isinstance(result, list) and len(result) > 0:
-                created_property = result[0]
-                return {
-                    'success': True,
-                    'property_id': str(created_property['id']),
-                    'data': created_property
-                }
-            else:
-                raise Exception('Unexpected response format from Beds24')
-                
+            return {
+                'success': True,
+                'import_id': result.get('importId'),
+                'message': 'External iCal imported successfully'
+            }
+            
         except requests.RequestException as e:
             return {
                 'success': False,
-                'error': f"Failed to create property on Beds24: {str(e)}"
+                'error': f"Failed to import external iCal: {str(e)}"
             }
     
-    def _map_property_type(self, property_type):
-        """Map property type to Beds24 format"""
-        mapping = {
-            'house': 'house',
-            'apartment': 'apartment',
-            'villa': 'villa',
-            'hotel': 'hotel',
-            'hostel': 'hostel',
-            'bnb': 'b&b',
-            'bed_and_breakfast': 'b&b'
+    def get_property_availability(self, beds24_property_id, start_date, end_date):
+        """Get property availability as iCal format"""
+        token = self.get_access_token()
+        
+        params = {
+            'start': start_date.strftime('%Y-%m-%d'),
+            'end': end_date.strftime('%Y-%m-%d'),
+            'format': 'ical'
         }
-        return mapping.get(property_type.lower(), 'house')
-    
-    def test_connection(self):
-        """Test connection to Beds24 API"""
+        
         try:
-            token = self.get_access_token()
             response = requests.get(
-                f"{self.base_url}/properties?limit=1",
+                f"{self.base_url}/properties/{beds24_property_id}/availability",
+                headers={
+                    'accept': 'text/calendar',
+                    'token': token
+                },
+                params=params,
+                timeout=30
+            )
+            response.raise_for_status()
+            
+            return {
+                'success': True,
+                'ical_data': response.text,
+                'content_type': response.headers.get('content-type')
+            }
+            
+        except requests.RequestException as e:
+            return {
+                'success': False,
+                'error': f"Failed to get availability iCal: {str(e)}"
+            }
+    
+    def sync_bookings_via_ical(self, beds24_property_id):
+        """Trigger manual iCal sync for a property"""
+        token = self.get_access_token()
+        
+        try:
+            response = requests.post(
+                f"{self.base_url}/properties/{beds24_property_id}/ical/sync",
                 headers={
                     'accept': 'application/json',
                     'token': token
                 },
-                timeout=30
+                timeout=60  # Longer timeout for sync operations
             )
-            return response.status_code == 200
-        except Exception:
-            return False
+            response.raise_for_status()
+            
+            result = response.json()
+            return {
+                'success': True,
+                'sync_status': result.get('status'),
+                'bookings_imported': result.get('bookingsImported', 0),
+                'bookings_exported': result.get('bookingsExported', 0),
+                'last_sync': result.get('lastSync')
+            }
+            
+        except requests.RequestException as e:
+            return {
+                'success': False,
+                'error': f"Failed to sync iCal: {str(e)}"
+            }
