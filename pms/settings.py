@@ -1,11 +1,12 @@
 import os
 from pathlib import Path
+import psycopg2.extensions
 from decouple import config
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 SECRET_KEY = config('SECRET_KEY','sdghtjykuyikjyhtgrfd')
-DEBUG = config('DEBUG', default=False, cast=bool)
+DEBUG = config('DEBUG', default=True, cast=bool)
 
 DJANGO_APPS = [
     'django.contrib.admin',
@@ -68,26 +69,21 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'pms.wsgi.application'
+AUTH_USER_MODEL = 'accounts.User'
 
 # Database
 
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config('DB_NAME', 'pms'),
-        'USER': config('DB_USER', 'postgres'),
-        'PASSWORD': config('DB_PASSWORD', 'postgres'),
-        'HOST': config('DB_HOST', default='localhost'),
-        'PORT': config('DB_PORT', default='5432'),
-        'CONN_MAX_AGE': 60,
+        'NAME': 'pms',
+        'USER': 'postgres',
+        'PASSWORD': '',
+        'HOST': 'localhost',
+        'PORT': '5432',
         'OPTIONS': {
-            'MAX_CONNS': 20,
-            'connect_timeout': 10,
-            'options': '-c default_transaction_isolation=read_committed'
+            'isolation_level': psycopg2.extensions.ISOLATION_LEVEL_READ_COMMITTED,
         },
-        'TEST': {
-            'NAME': 'test_oifyk_db',
-        }
     }
 }
 
@@ -102,7 +98,7 @@ if not DEBUG:
         'PORT': config('DB_REPLICA_PORT', default='5432'),
         'CONN_MAX_AGE': 60,
         'OPTIONS': {
-            'MAX_CONNS': 20,
+            'connect_timeout': 10,
         }
     }
 
@@ -163,9 +159,15 @@ SIMPLE_JWT = {
 }
 
 # CORS
-CORS_ALLOW_ALL_ORIGINS = DEBUG
-CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='').split(',')
+CORS_ALLOW_ALL_ORIGINS = True
 
+CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='').split(',')
+cors_origins = config('CORS_ALLOWED_ORIGINS', default='')
+
+if cors_origins:
+    CORS_ALLOWED_ORIGINS = [origin.strip() for origin in cors_origins.split(',') if origin.strip()]
+else:
+    CORS_ALLOWED_ORIGINS = []
 # Email
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 SENDGRID_API_KEY = config('SENDGRID_API_KEY', default='')

@@ -32,3 +32,26 @@ class OwnerTrustedNetworkSerializer(serializers.ModelSerializer):
             return level_def.name
         except TrustLevelDefinition.DoesNotExist:
             return f"Level {obj.trust_level}"
+        
+class TrustedNetworkInvitationSerializer(serializers.ModelSerializer):
+    owner_name = serializers.CharField(source='owner.full_name', read_only=True)
+    trust_level_name = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = TrustedNetworkInvitation
+        fields = [
+            'id', 'owner', 'owner_name', 'email', 'invitee_name', 
+            'trust_level', 'trust_level_name', 'discount_percentage', 
+            'personal_message', 'status', 'invitation_token', 
+            'expires_at', 'accepted_at', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'invitation_token', 'created_at', 'updated_at']
+    
+    def get_trust_level_name(self, obj):
+        try:
+            level_def = TrustLevelDefinition.objects.get(
+                owner=obj.owner, level=obj.trust_level
+            )
+            return level_def.name
+        except TrustLevelDefinition.DoesNotExist:
+            return f"Level {obj.trust_level}"
