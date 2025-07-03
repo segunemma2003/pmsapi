@@ -33,7 +33,9 @@ LOCAL_APPS = [
     'trust_levels',
     'beds24_integration',
     'analytics',
-    'health'
+    'health',
+     'notifications',
+    'upload',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS

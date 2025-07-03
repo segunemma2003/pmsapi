@@ -1,3 +1,4 @@
+from trust_levels.models import TrustedNetworkInvitation
 from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -224,3 +225,80 @@ class InvitationViewSet(viewsets.ModelViewSet):
         return Response({
             'message': 'Invitation declined successfully'
         })
+    @action(detail=False, methods=['post'])
+    def validate_token(self, request):
+        """Validate invitation token"""
+        token = request.data.get('token')
+        
+        if not token:
+            return Response(
+                {'error': 'Token is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        invitation = Invitation.objects.get_valid_invitation(token)
+        if not invitation:
+            return Response({
+                'valid': False,
+                'error': 'Invalid or expired invitation token'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        return Response({
+            'valid': True,
+            'invitation': {
+                'email': invitation.email,
+                'invitee_name': invitation.invitee_name,
+                'invitation_type': invitation.invitation_type,
+                'inviter_name': invitation.invited_by.full_name,
+                'expires_at': invitation.expires_at.isoformat(),
+                'personal_message': invitation.personal_message
+            }
+        })
+
+    # Add this method to trust_levels/views.py TrustedNetworkInvitationViewSet
+
+    @action(detail=False, methods=['post'])
+    def validate_token(self, request):
+        """Validate network invitation token"""
+        token = request.data.get('token')
+        
+        if not token:
+            return Response(
+                {'error': 'Token is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            invitation = TrustedNetworkInvitation.objects.get(
+                invitation_token=token,
+                status='pending'
+            )
+            
+            # Check if expired
+            if invitation.expires_at <= timezone.now():
+                invitation.status = 'expired'
+                invitation.save()
+                return Response({
+                    'valid': False,
+                    'error': 'Invitation token has expired'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            return Response({
+                'valid': True,
+                'invitation': {
+                    'email': invitation.email,
+                    'invitee_name': invitation.invitee_name,
+                    'owner_name': invitation.owner.full_name,
+                    'trust_level': invitation.trust_level,
+                    'trust_level_name': invitation.trust_level_name,
+                    'discount_percentage': float(invitation.discount_percentage),
+                    'expires_at': invitation.expires_at.isoformat(),
+                    'personal_message': invitation.personal_message
+                }
+            })
+            
+        except TrustedNetworkInvitation.DoesNotExist:
+            return Response({
+                'valid': False,
+                'error': 'Invalid invitation token'
+            }, status=status.HTTP_400_BAD_REQUEST)
