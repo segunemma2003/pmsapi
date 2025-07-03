@@ -61,3 +61,29 @@ class User(AbstractUser):
                 cache.set(cache_key, size, timeout=300)  # 5 minutes
             return size
         return 0
+    
+    def complete_onboarding_with_token(self, invitation_token):
+        """Complete onboarding process with invitation token"""
+        try:
+            from invitations.models import OnboardingToken
+            from invitations.tasks import process_invitation_acceptance
+            
+            # Process the invitation
+            result = process_invitation_acceptance(invitation_token, str(self.id))
+            
+            if result['success']:
+                # If user is owner, trigger defaults creation
+                if self.user_type == 'owner':
+                    from accounts.tasks import create_owner_defaults
+                    create_owner_defaults.delay(str(self.id))
+                else:
+                    # For non-owners, just mark as active
+                    self.status = 'active'
+                    self.onboarding_completed = True
+                    self.last_active_at = timezone.now()
+                    self.save()
+            
+            return result
+            
+        except Exception as e:
+            return {'success': False, 'error': str(e)}

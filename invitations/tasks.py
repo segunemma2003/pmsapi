@@ -2,20 +2,32 @@ from celery import shared_task
 from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.conf import settings
+from django.utils import timezone
+from django.contrib.auth import get_user_model
 from .models import Invitation
-from trust_levels.models import TrustedNetworkInvitation
 
-@shared_task
-def send_invitation_email(invitation_id, inviter_name):
-    """Send invitation email"""
+User = get_user_model()
+
+@shared_task(bind=True, max_retries=3)
+def send_invitation_email(self, invitation_id, inviter_name, is_existing_user=False):
+    """Send invitation email with SendGrid"""
     try:
         invitation = Invitation.objects.select_related('invited_by').get(id=invitation_id)
         
-        subject = f"🏠 You're invited to join OnlyIfYouKnow as a {invitation.invitation_type}!"
+        if invitation.status != 'pending':
+            return {'success': False, 'error': 'Invitation is not pending'}
+        
+        # Different subject and content for existing vs new users
+        if is_existing_user:
+            subject = f"🏠 You're invited to become a {invitation.invitation_type.title()} on OnlyIfYouKnow!"
+            template_prefix = 'invitation_existing_user'
+        else:
+            subject = f"🏠 You're invited to join OnlyIfYouKnow as a {invitation.invitation_type.title()}!"
+            template_prefix = 'invitation_new_user'
         
         # Get invitation URL
         base_url = settings.FRONTEND_URL
-        invitation_url = f"{base_url}/invitation/respond?token={invitation.invitation_token}"
+        invitation_url = f"{base_url}/invitation/accept?token={invitation.invitation_token}"
         
         context = {
             'invitee_name': invitation.invitee_name or 'there',
@@ -23,11 +35,13 @@ def send_invitation_email(invitation_id, inviter_name):
             'invitation_type': invitation.invitation_type,
             'personal_message': invitation.personal_message,
             'invitation_url': invitation_url,
-            'email': invitation.email
+            'email': invitation.email,
+            'expires_at': invitation.expires_at,
+            'is_existing_user': is_existing_user
         }
         
-        html_message = render_to_string('emails/invitation.html', context)
-        plain_message = render_to_string('emails/invitation.txt', context)
+        html_message = render_to_string(f'emails/{template_prefix}.html', context)
+        plain_message = render_to_string(f'emails/{template_prefix}.txt', context)
         
         send_mail(
             subject=subject,
@@ -38,20 +52,31 @@ def send_invitation_email(invitation_id, inviter_name):
             fail_silently=False
         )
         
-        return {'success': True, 'message': 'Email sent successfully'}
+        return {'success': True, 'message': 'Invitation email sent successfully'}
         
     except Invitation.DoesNotExist:
         return {'success': False, 'error': 'Invitation not found'}
     except Exception as e:
+        # Retry with exponential backoff
+        if self.request.retries < self.max_retries:
+            countdown = 2 ** self.request.retries
+            raise self.retry(countdown=countdown, exc=e)
         return {'success': False, 'error': str(e)}
 
-@shared_task
-def send_trusted_network_invitation_email(invitation_id):
+@shared_task(bind=True, max_retries=3)
+def send_trusted_network_invitation_email(self, invitation_id, user_exists=False):
     """Send trusted network invitation email"""
     try:
+        from trust_levels.models import TrustedNetworkInvitation
         invitation = TrustedNetworkInvitation.objects.select_related('owner').get(id=invitation_id)
         
         subject = f"🏠 You're invited to {invitation.owner.full_name}'s trusted network!"
+        
+        # Different template for existing vs new users
+        if user_exists:
+            template_prefix = 'network_invitation_existing_user'
+        else:
+            template_prefix = 'network_invitation_new_user'
         
         # Get invitation URL
         base_url = settings.FRONTEND_URL
@@ -64,11 +89,12 @@ def send_trusted_network_invitation_email(invitation_id):
             'discount_percentage': invitation.discount_percentage,
             'personal_message': invitation.personal_message,
             'invitation_url': invitation_url,
-            'email': invitation.email
+            'email': invitation.email,
+            'user_exists': user_exists
         }
         
-        html_message = render_to_string('emails/network_invitation.html', context)
-        plain_message = render_to_string('emails/network_invitation.txt', context)
+        html_message = render_to_string(f'emails/{template_prefix}.html', context)
+        plain_message = render_to_string(f'emails/{template_prefix}.txt', context)
         
         send_mail(
             subject=subject,
@@ -81,7 +107,8 @@ def send_trusted_network_invitation_email(invitation_id):
         
         return {'success': True, 'message': 'Network invitation email sent successfully'}
         
-    except TrustedNetworkInvitation.DoesNotExist:
-        return {'success': False, 'error': 'Network invitation not found'}
     except Exception as e:
+        if self.request.retries < self.max_retries:
+            countdown = 2 ** self.request.retries
+            raise self.retry(countdown=countdown, exc=e)
         return {'success': False, 'error': str(e)}

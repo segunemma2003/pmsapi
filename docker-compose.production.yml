@@ -1,0 +1,160 @@
+version: '3.8'
+
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: oifyk_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./ssl:/etc/nginx/ssl
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+    depends_on:
+      - web
+    restart: unless-stopped
+    networks:
+      - oifyk_network
+
+  web:
+    build: 
+      context: .
+      dockerfile: Dockerfile.production
+    container_name: oifyk_web
+    command: gunicorn pms.wsgi:application --bind 0.0.0.0:8000 --workers 4 --worker-class gevent --worker-connections 1000 --max-requests 1000 --max-requests-jitter 100 --timeout 30 --keep-alive 2
+    volumes:
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+      - ./logs:/app/logs
+    expose:
+      - "8000"
+    env_file:
+      - .env.production
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+    networks:
+      - oifyk_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  db:
+    image: postgres:15-alpine
+    container_name: oifyk_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+      - ./db_backups:/backups
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    restart: unless-stopped
+    networks:
+      - oifyk_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  db_replica:
+    image: postgres:15-alpine
+    container_name: oifyk_db_replica
+    volumes:
+      - postgres_replica_data:/var/lib/postgresql/data/
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_MASTER_SERVICE: db
+    restart: unless-stopped
+    networks:
+      - oifyk_network
+    depends_on:
+      - db
+
+  redis:
+    image: redis:7-alpine
+    container_name: oifyk_redis
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf
+    restart: unless-stopped
+    networks:
+      - oifyk_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  celery:
+    build: 
+      context: .
+      dockerfile: Dockerfile.production
+    container_name: oifyk_celery
+    command: celery -A pms worker -l info --concurrency=4 --max-tasks-per-child=1000
+    volumes:
+      - ./logs:/app/logs
+    env_file:
+      - .env.production
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+    networks:
+      - oifyk_network
+    healthcheck:
+      test: ["CMD", "celery", "-A", "pms", "inspect", "ping"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+
+  celery-beat:
+    build: 
+      context: .
+      dockerfile: Dockerfile.production
+    container_name: oifyk_celery_beat
+    command: celery -A pms beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    volumes:
+      - ./logs:/app/logs
+    env_file:
+      - .env.production
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+    networks:
+      - oifyk_network
+
+  monitoring:
+    image: prom/prometheus:latest
+    container_name: oifyk_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    restart: unless-stopped
+    networks:
+      - oifyk_network
+
+volumes:
+  postgres_data:
+  postgres_replica_data:
+  redis_data:
+  static_volume:
+  media_volume:
+  prometheus_data:
+
+networks:
+  oifyk_network:
+    driver: bridge

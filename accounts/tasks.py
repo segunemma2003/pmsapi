@@ -1,12 +1,13 @@
 from celery import shared_task
 from django.contrib.auth import get_user_model
 from django.utils import timezone
+from django.core.cache import cache
 
 User = get_user_model()
 
-@shared_task
-def create_owner_defaults(user_id):
-    """Create default trust levels and Beds24 subaccount for new owner"""
+@shared_task(bind=True, max_retries=3)
+def create_owner_defaults(self, user_id):
+    """Create default trust levels for new owner (no Beds24 subaccount)"""
     try:
         user = User.objects.get(id=user_id)
         
@@ -15,20 +16,7 @@ def create_owner_defaults(user_id):
         
         # Create default trust levels
         from trust_levels.models import TrustLevelDefinition
-        TrustLevelDefinition.create_default_levels(user)
-        
-        # Create Beds24 subaccount
-        from beds24_integration.services import Beds24Service
-        beds24_service = Beds24Service()
-        
-        try:
-            result = beds24_service.create_subaccount(user)
-            if result['success']:
-                user.beds24_subaccount_id = result['subaccount_id']
-                user.save()
-        except Exception as e:
-            # Log error but don't fail the entire process
-            print(f"Failed to create Beds24 subaccount for user {user_id}: {str(e)}")
+        trust_levels = TrustLevelDefinition.create_default_levels(user)
         
         # Mark onboarding as completed
         user.onboarding_completed = True
@@ -36,9 +24,19 @@ def create_owner_defaults(user_id):
         user.last_active_at = timezone.now()
         user.save()
         
-        return {'success': True, 'message': 'Owner defaults created successfully'}
+        # Clear any cached data
+        cache.delete(f'user_profile_{user_id}')
+        
+        return {
+            'success': True, 
+            'message': 'Owner defaults created successfully',
+            'trust_levels_created': len(trust_levels)
+        }
         
     except User.DoesNotExist:
         return {'success': False, 'error': 'User not found'}
     except Exception as e:
+        if self.request.retries < self.max_retries:
+            countdown = 2 ** self.request.retries * 60
+            raise self.retry(countdown=countdown, exc=e)
         return {'success': False, 'error': str(e)}

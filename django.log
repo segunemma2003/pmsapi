@@ -9,3 +9,25 @@ WARNING 2025-07-02 01:27:59,180 log 73764 123145472118784 Unauthorized: /api/
 WARNING 2025-07-02 01:28:00,607 log 73764 123145488908288 Unauthorized: /api/
 WARNING 2025-07-02 01:28:17,278 log 73764 123145522487296 Not Found: /service-worker.js
 WARNING 2025-07-02 01:28:17,299 log 73764 123145656803328 Not Found: /service-worker.js
+INFO 2025-07-02 01:48:19,771 autoreload 73764 140704477671040 /Users/segun/Documents/projects/pmsadmin/pms/invitations/tasks.py changed, reloading.
+INFO 2025-07-02 01:48:21,649 autoreload 83804 140704477671040 Watching for file changes with StatReloader
+INFO 2025-07-02 01:49:15,424 autoreload 83804 140704477671040 /Users/segun/Documents/projects/pmsadmin/pms/invitations/views.py changed, reloading.
+INFO 2025-07-02 01:49:17,534 autoreload 84150 140704477671040 Watching for file changes with StatReloader
+INFO 2025-07-02 01:49:59,703 autoreload 84150 140704477671040 /Users/segun/Documents/projects/pmsadmin/pms/accounts/models.py changed, reloading.
+INFO 2025-07-02 01:50:02,510 autoreload 84441 140704477671040 Watching for file changes with StatReloader
+INFO 2025-07-02 01:51:03,648 autoreload 84441 140704477671040 /Users/segun/Documents/projects/pmsadmin/pms/accounts/serializers.py changed, reloading.
+INFO 2025-07-02 01:51:06,227 autoreload 84834 140704477671040 Watching for file changes with StatReloader
+INFO 2025-07-02 01:51:48,304 autoreload 84834 140704477671040 /Users/segun/Documents/projects/pmsadmin/pms/invitations/serializers.py changed, reloading.
+INFO 2025-07-02 01:51:50,636 autoreload 85117 140704477671040 Watching for file changes with StatReloader
+INFO 2025-07-02 01:54:32,459 autoreload 85117 140704477671040 /Users/segun/Documents/projects/pmsadmin/pms/accounts/serializers.py changed, reloading.
+INFO 2025-07-02 01:54:35,174 autoreload 86118 140704477671040 Watching for file changes with StatReloader
+INFO 2025-07-02 01:55:08,929 autoreload 86118 140704477671040 /Users/segun/Documents/projects/pmsadmin/pms/accounts/views.py changed, reloading.
+INFO 2025-07-02 01:55:11,921 autoreload 86355 140704477671040 Watching for file changes with StatReloader
+INFO 2025-07-02 01:56:31,333 autoreload 86355 140704477671040 /Users/segun/Documents/projects/pmsadmin/pms/invitations/tasks.py changed, reloading.
+INFO 2025-07-02 01:56:33,592 autoreload 86855 140704477671040 Watching for file changes with StatReloader
+INFO 2025-07-02 01:57:47,777 autoreload 86855 140704477671040 /Users/segun/Documents/projects/pmsadmin/pms/invitations/serializers.py changed, reloading.
+INFO 2025-07-02 01:57:49,390 autoreload 87356 140704477671040 Watching for file changes with StatReloader
+INFO 2025-07-02 02:04:40,605 autoreload 87356 140704477671040 /Users/segun/Documents/projects/pmsadmin/pms/accounts/views.py changed, reloading.
+INFO 2025-07-02 02:04:42,508 autoreload 89597 140704477671040 Watching for file changes with StatReloader
+INFO 2025-07-02 02:05:09,576 autoreload 89597 140704477671040 /Users/segun/Documents/projects/pmsadmin/pms/accounts/views.py changed, reloading.
+INFO 2025-07-02 02:05:11,254 autoreload 89788 140704477671040 Watching for file changes with StatReloader

@@ -1,4 +1,4 @@
-from rest_framework import viewsets, permissions, status
+from rest_framework import viewsets, permissions, status, serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.contrib.auth import get_user_model
@@ -29,20 +29,32 @@ class UserViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['post'], permission_classes=[permissions.AllowAny])
     def register(self, request):
-        """Register new user with invitation token"""
+        """Register new user with mandatory invitation token"""
         serializer = UserRegistrationSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
         
-        user = serializer.save()
+        try:
+            serializer.is_valid(raise_exception=True)
+            user = serializer.save()
+            
+            return Response({
+                'message': 'Registration successful. Please check your email for confirmation.',
+                'user_id': str(user.id),
+                'user_type': user.user_type
+            }, status=status.HTTP_201_CREATED)
+            
+        except serializers.ValidationError as e:
+            # Return specific validation errors
+            return Response({
+                'error': 'Registration failed',
+                'details': e.detail
+            }, status=status.HTTP_400_BAD_REQUEST)
         
-        # If user is owner, create default trust levels and Beds24 subaccount
-        if user.user_type == 'owner':
-            create_owner_defaults.delay(str(user.id))
-        
-        return Response(
-            {'message': 'User registered successfully', 'user_id': str(user.id)},
-            status=status.HTTP_201_CREATED
-        )
+        except Exception as e:
+            # Handle unexpected errors
+            return Response({
+                'error': 'Registration failed due to server error',
+                'message': 'Please try again or contact support'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     @action(detail=False, methods=['get'])
     def profile(self, request):
