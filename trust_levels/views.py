@@ -10,6 +10,7 @@ from .serializers import (
     TrustLevelDefinitionSerializer, OwnerTrustedNetworkSerializer,
     TrustedNetworkInvitationSerializer, TrustedNetworkInvitationCreateSerializer
 )
+from invitations.tasks import send_trusted_network_invitation_email
 
 User = get_user_model()
 
@@ -170,3 +171,85 @@ class TrustedNetworkInvitationViewSet(viewsets.ModelViewSet):
                 {'error': 'Invalid or expired invitation'}, 
                 status=status.HTTP_400_BAD_REQUEST
             )
+            
+class TrustLevelDefinitionViewSet(viewsets.ModelViewSet):
+    serializer_class = TrustLevelDefinitionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        user = self.request.user
+        if user.user_type == 'owner':
+            return TrustLevelDefinition.objects.filter(owner=user)
+        return TrustLevelDefinition.objects.none()
+    
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
+
+class OwnerTrustedNetworkViewSet(viewsets.ModelViewSet):
+    serializer_class = OwnerTrustedNetworkSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        user = self.request.user
+        if user.user_type == 'owner':
+            return OwnerTrustedNetwork.objects.filter(owner=user)
+        elif user.user_type == 'user':
+            return OwnerTrustedNetwork.objects.filter(trusted_user=user)
+        return OwnerTrustedNetwork.objects.none()
+    
+    @action(detail=True, methods=['patch'])
+    def update_trust_level(self, request, pk=None):
+        """Update trust level for a network member"""
+        network = self.get_object()
+        
+        if network.owner != request.user:
+            return Response(
+                {'error': 'Permission denied'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        new_level = request.data.get('trust_level')
+        if not new_level:
+            return Response(
+                {'error': 'Trust level required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate trust level exists
+        try:
+            trust_level_def = TrustLevelDefinition.objects.get(
+                owner=request.user,
+                level=new_level
+            )
+        except TrustLevelDefinition.DoesNotExist:
+            return Response(
+                {'error': 'Invalid trust level'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        network.trust_level = new_level
+        network.discount_percentage = trust_level_def.default_discount_percentage
+        network.save()
+        
+        return Response({
+            'message': 'Trust level updated successfully',
+            'trust_level': new_level,
+            'discount_percentage': float(network.discount_percentage)
+        })
+    
+    @action(detail=True, methods=['delete'])
+    def remove_from_network(self, request, pk=None):
+        """Remove user from trusted network"""
+        network = self.get_object()
+        
+        if network.owner != request.user:
+            return Response(
+                {'error': 'Permission denied'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        network.delete()
+        
+        return Response({
+            'message': 'User removed from network successfully'
+        })

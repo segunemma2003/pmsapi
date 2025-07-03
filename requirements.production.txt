@@ -40,3 +40,5 @@ psycopg2-binary
 
 # Task scheduling
 django-celery-beat
+
+django-redis

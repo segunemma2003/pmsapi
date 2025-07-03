@@ -85,7 +85,6 @@ DATABASES = {
         'CONN_MAX_AGE': 300,  # 5 minutes connection pooling
         'OPTIONS': {
             'isolation_level': psycopg2.extensions.ISOLATION_LEVEL_READ_COMMITTED,
-            'MAX_CONNS': 20,
             'connect_timeout': 10,
             'application_name': 'oifyk_backend',
         },
@@ -110,8 +109,7 @@ if not DEBUG:
             'application_name': 'oifyk_backend_replica',
         }
     }
-    
-    DATABASE_ROUTERS = ['utils.db_router.DatabaseRouter']
+DATABASE_ROUTERS = ['utils.db_router.DatabaseRouter']
 
 # Redis Configuration - Optimized for High Traffic
 REDIS_URL = config('REDIS_URL', default='redis://localhost:6379/0')

@@ -246,3 +246,89 @@ class Beds24Service:
                 'success': False,
                 'error': f"Failed to get booking status: {str(e)}"
             }
+            
+def create_property(self, property_data):
+    """Create property on Beds24"""
+    token = self.get_access_token()
+    
+    try:
+        response = requests.post(
+            f"{self.base_url}/properties",
+            headers={
+                'accept': 'application/json',
+                'Content-Type': 'application/json',
+                'Authorization': f'Bearer {token}'
+            },
+            json=property_data,
+            timeout=30
+        )
+        response.raise_for_status()
+        
+        result = response.json()
+        return {
+            'success': True,
+            'property_id': result.get('id'),
+            'data': result
+        }
+        
+    except requests.RequestException as e:
+        return {
+            'success': False,
+            'error': f"Failed to create property: {str(e)}"
+        }
+
+def get_property_ical_urls(self, property_id):
+    """Get iCal URLs for a property"""
+    token = self.get_access_token()
+    
+    try:
+        response = requests.get(
+            f"{self.base_url}/properties/{property_id}/ical",
+            headers={
+                'accept': 'application/json',
+                'Authorization': f'Bearer {token}'
+            },
+            timeout=30
+        )
+        response.raise_for_status()
+        
+        result = response.json()
+        return {
+            'success': True,
+            'ical_urls': {
+                'import_url': result.get('importUrl'),
+                'export_url': result.get('exportUrl'),
+                'sync_url': result.get('syncUrl')
+            }
+        }
+        
+    except requests.RequestException as e:
+        return {
+            'success': False,
+            'error': f"Failed to get iCal URLs: {str(e)}"
+        }
+
+def update_property_visibility(self, property_id, is_visible):
+    """Update property visibility on Beds24"""
+    token = self.get_access_token()
+    
+    try:
+        response = requests.patch(
+            f"{self.base_url}/properties/{property_id}",
+            headers={
+                'accept': 'application/json',
+                'Content-Type': 'application/json',
+                'Authorization': f'Bearer {token}'
+            },
+            json={'visible': is_visible},
+            timeout=30
+        )
+        response.raise_for_status()
+        
+        return {'success': True}
+        
+    except requests.RequestException as e:
+        return {
+            'success': False,
+            'error': f"Failed to update visibility: {str(e)}"
+        }
