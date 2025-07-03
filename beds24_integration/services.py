@@ -218,3 +218,31 @@ class Beds24Service:
             return response.status_code == 200
         except:
             return False
+
+
+    def get_booking_status(self, booking_id):
+        """Get booking status from Beds24"""
+        token = self.get_access_token()
+        
+        try:
+            response = requests.get(
+                f"{self.base_url}/bookings/{booking_id}",
+                headers={
+                    'accept': 'application/json',
+                    'Authorization': f'Bearer {token}'
+                },
+                timeout=30
+            )
+            response.raise_for_status()
+            
+            result = response.json()
+            return {
+                'success': True,
+                'status': result.get('status', 'unknown')
+            }
+            
+        except requests.RequestException as e:
+            return {
+                'success': False,
+                'error': f"Failed to get booking status: {str(e)}"
+            }
