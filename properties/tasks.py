@@ -114,3 +114,96 @@ def update_beds24_visibility(self, property_id, is_visible):
             countdown = 2 ** self.request.retries * 60
             raise self.retry(countdown=countdown, exc=e)
         return {'success': False, 'error': str(e)}
+    
+
+@shared_task(bind=True, max_retries=2)
+def auto_sync_all_properties(self):
+    """Auto sync all properties with Beds24"""
+    try:
+        from .models import Property
+        
+        properties = Property.objects.filter(
+            beds24_property_id__isnull=False,
+            ical_sync_enabled=True,
+            status='active'
+        )
+        
+        synced_count = 0
+        for property_obj in properties:
+            try:
+                # Trigger iCal sync
+                beds24_service = Beds24Service()
+                result = beds24_service.sync_bookings_via_ical(property_obj.beds24_property_id)
+                
+                if result['success']:
+                    synced_count += 1
+                    property_obj.ical_last_sync = timezone.now()
+                    property_obj.ical_sync_status = 'completed'
+                    property_obj.save()
+                    
+            except Exception as e:
+                property_obj.ical_sync_status = 'failed'
+                property_obj.beds24_error_message = str(e)
+                property_obj.save()
+        
+        return {'success': True, 'synced_count': synced_count}
+        
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+@shared_task(bind=True, max_retries=2)
+def sync_booking_status_from_beds24(self):
+    """Sync booking statuses from Beds24"""
+    try:
+        from bookings.models import Booking
+        
+        # Get bookings that might need status updates
+        bookings = Booking.objects.filter(
+            status__in=['pending', 'confirmed'],
+            property__beds24_property_id__isnull=False
+        )
+        
+        updated_count = 0
+        beds24_service = Beds24Service()
+        
+        for booking in bookings:
+            try:
+                # Check booking status on Beds24
+                result = beds24_service.get_booking_status(booking.id)
+                if result['success'] and result['status'] != booking.status:
+                    booking.status = result['status']
+                    booking.save()
+                    updated_count += 1
+            except Exception:
+                continue
+        
+        return {'success': True, 'updated_count': updated_count}
+        
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+@shared_task
+def cleanup_availability_cache():
+    """Clean up expired availability cache entries"""
+    try:
+        from django.core.cache import cache
+        from django_redis import get_redis_connection
+        
+        redis_conn = get_redis_connection("default")
+        
+        # Find and delete expired availability cache keys
+        pattern = "property_availability_*"
+        keys = redis_conn.keys(pattern)
+        
+        deleted_count = 0
+        for key in keys:
+            # Check if key is expired or older than 1 day
+            ttl = redis_conn.ttl(key)
+            if ttl <= 0 or ttl > 86400:  # 24 hours
+                redis_conn.delete(key)
+                deleted_count += 1
+        
+        return {'success': True, 'deleted_count': deleted_count}
+        
+    except Exception as e:
+        return {'success': False, 'error': str(e)}

@@ -37,7 +37,7 @@ services:
 
   celery:
     build: .
-    command: celery -A config worker -l info
+    command: celery -A pms worker -l info
     volumes:
       - .:/app
     depends_on:
@@ -53,7 +53,7 @@ services:
 
   celery-beat:
     build: .
-    command: celery -A config beat -l info
+    command: celery -A pms beat -l info
     volumes:
       - .:/app
     depends_on:

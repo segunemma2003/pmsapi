@@ -7,7 +7,7 @@ from django.db import transaction
 from django.contrib.auth import get_user_model
 from .models import Invitation
 from .serializers import InvitationSerializer, InvitationCreateSerializer
-from .tasks import send_invitation_email, send_reminder_email
+from .tasks import send_invitation_email
 
 User = get_user_model()
 

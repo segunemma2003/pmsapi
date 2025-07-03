@@ -108,3 +108,20 @@ def auto_queue_beds24_sync(sender, instance, created, **kwargs):
         from .tasks import enlist_to_beds24
         # Queue for Beds24 integration
         enlist_to_beds24.delay(str(instance.id))
+
+
+class PropertyImage(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    property = models.ForeignKey(Property, on_delete=models.CASCADE, related_name='images_set')
+    image_url = models.URLField()
+    is_primary = models.BooleanField(default=False)
+    order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'property_images'
+        ordering = ['order', 'created_at']
+        indexes = [
+            models.Index(fields=['property', 'is_primary']),
+            models.Index(fields=['order']),
+        ]

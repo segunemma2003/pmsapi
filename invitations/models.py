@@ -108,3 +108,34 @@ class Invitation(models.Model):
             return time_since_last >= timedelta(hours=24)
         
         return True
+    
+class OnboardingToken(models.Model):
+    STATUS_CHOICES = (
+        ('pending', 'Pending'),
+        ('used', 'Used'),
+        ('expired', 'Expired'),
+    )
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    invitation = models.ForeignKey(Invitation, on_delete=models.SET_NULL, null=True, blank=True)
+    email = models.EmailField(db_index=True)
+    user_type = models.CharField(max_length=10, choices=Invitation.INVITATION_TYPES, default='user')
+    token = models.UUIDField(default=uuid.uuid4, unique=True, db_index=True)
+    expires_at = models.DateTimeField(db_index=True)
+    used_at = models.DateTimeField(null=True, blank=True)
+    used_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'onboarding_tokens'
+        indexes = [
+            models.Index(fields=['token']),
+            models.Index(fields=['email']),
+            models.Index(fields=['expires_at']),
+        ]
+    
+    def save(self, *args, **kwargs):
+        if not self.expires_at:
+            self.expires_at = timezone.now() + timedelta(days=7)
+        super().save(*args, **kwargs)

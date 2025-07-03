@@ -3,6 +3,7 @@ from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.conf import settings
 from django.utils import timezone
+from datetime import timedelta
 from django.contrib.auth import get_user_model
 from .models import Invitation
 
@@ -110,5 +111,45 @@ def send_trusted_network_invitation_email(self, invitation_id, user_exists=False
     except Exception as e:
         if self.request.retries < self.max_retries:
             countdown = 2 ** self.request.retries
+            raise self.retry(countdown=countdown, exc=e)
+        return {'success': False, 'error': str(e)}
+
+@shared_task(bind=True, max_retries=3)
+def process_invitation_acceptance(self, invitation_token, user_id):
+    """Process invitation acceptance and create onboarding token"""
+    try:
+        from .models import OnboardingToken
+        
+        # Get the invitation
+        invitation = Invitation.objects.get(invitation_token=invitation_token)
+        
+        if invitation.status != 'pending':
+            return {'success': False, 'error': 'Invitation is not pending'}
+        
+        # Create onboarding token
+        onboarding_token = OnboardingToken.objects.create(
+            invitation=invitation,
+            email=invitation.email,
+            user_type=invitation.invitation_type,
+            expires_at=timezone.now() + timedelta(days=7)
+        )
+        
+        # Mark invitation as accepted
+        invitation.status = 'accepted'
+        invitation.accepted_by_id = user_id
+        invitation.accepted_at = timezone.now()
+        invitation.save()
+        
+        return {
+            'success': True,
+            'onboarding_token': str(onboarding_token.token),
+            'user_type': invitation.invitation_type
+        }
+        
+    except Invitation.DoesNotExist:
+        return {'success': False, 'error': 'Invitation not found'}
+    except Exception as e:
+        if self.request.retries < self.max_retries:
+            countdown = 2 ** self.request.retries * 60
             raise self.retry(countdown=countdown, exc=e)
         return {'success': False, 'error': str(e)}

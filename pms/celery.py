@@ -2,7 +2,7 @@ import os
 from celery import Celery
 from celery.schedules import crontab
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings.production')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'pms.settings')
 
 app = Celery('oifyk')
 app.config_from_object('django.conf:settings', namespace='CELERY')
@@ -13,7 +13,7 @@ def debug_task(self):
     print(f'Request: {self.request!r}')
     
     
-app.pms.beat_schedule = {
+app.conf.beat_schedule = {
     'auto-sync-ical': {
         'task': 'properties.tasks.auto_sync_all_properties',
         'schedule': crontab(minute=0),  # Run every hour

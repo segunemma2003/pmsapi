@@ -4,6 +4,12 @@ from .models import Property, PropertyImage
 
 User = get_user_model()
 
+
+
+class PropertyImageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PropertyImage
+        fields = ['id', 'image_url', 'is_primary', 'order']
 class PropertySerializer(serializers.ModelSerializer):
     owner_name = serializers.CharField(source='owner.full_name', read_only=True)
     display_price = serializers.SerializerMethodField()
@@ -67,3 +73,4 @@ class PropertyCreateSerializer(serializers.ModelSerializer):
             )
         
         return property_obj
+    
