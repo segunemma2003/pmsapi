@@ -1,0 +1,30 @@
+🏠 WELCOME TO ONLYIFYOUKNOW - YOU'RE INVITED!
+
+Hi {{ invitee_name }},
+
+You've been personally invited by {{ inviter_name }} to join OnlyIfYouKnow as a {{ invitation_type|title }}.
+
+{% if personal_message %}
+PERSONAL MESSAGE FROM {{ inviter_name|upper }}:
+"{{ personal_message }}"
+{% endif %}
+
+📋 NEXT STEPS:
+
+1. Click the link below to create your account
+2. Fill in your details to create your secure account  
+3. Complete your registration and start using the platform
+
+🎉 CREATE YOUR ACCOUNT: {{ invitation_url }}
+
+⏰ LIMITED TIME: This exclusive invitation expires on {{ expires_at|date:"F j, Y" }}. Join now to secure your spot!
+
+If you have any questions about getting started, feel free to reach out to {{ inviter_name }} or our support team.
+
+Welcome to the family!
+The OnlyIfYouKnow Team
+
+---
+This exclusive invitation was sent to {{ email }}
+If you didn't expect this invitation, you can safely ignore this email.
+© 2025 OnlyIfYouKnow. All rights reserved.

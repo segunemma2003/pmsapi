@@ -10,7 +10,7 @@ from .serializers import (
     TrustLevelDefinitionSerializer, OwnerTrustedNetworkSerializer,
     TrustedNetworkInvitationSerializer, TrustedNetworkInvitationCreateSerializer
 )
-from invitations.tasks import send_trusted_network_invitation_email
+
 
 User = get_user_model()
 

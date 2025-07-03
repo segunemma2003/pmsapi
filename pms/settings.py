@@ -378,3 +378,6 @@ FEATURES = {
     'ANALYTICS_TRACKING': config('FEATURE_ANALYTICS', default=True, cast=bool),
     'RATE_LIMITING': config('FEATURE_RATE_LIMITING', default=True, cast=bool),
 }
+
+BEDS24_API_URL = 'https://beds24.com/api/v2'
+SENDGRID_API_KEY = config('SENDGRID_API_KEY', default='')

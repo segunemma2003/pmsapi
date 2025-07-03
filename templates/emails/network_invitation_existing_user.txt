@@ -1,0 +1,28 @@
+🏠 TRUSTED NETWORK INVITATION - OnlyIfYouKnow
+
+Hi {{ invitee_name }},
+
+Great news! {{ owner_name }} has personally invited you to join their trusted network on OnlyIfYouKnow.
+
+{% if personal_message %}
+PERSONAL MESSAGE FROM {{ owner_name|upper }}:
+"{{ personal_message }}"
+{% endif %}
+
+📋 NEXT STEPS:
+
+1. Click the link below while logged into your account
+2. Accept the invitation to join the network
+3. Start using the platform with your new access
+
+✨ ACCEPT INVITATION: {{ invitation_url }}
+
+If you have any questions about the network or booking process, feel free to contact {{ owner_name }} directly or our support team.
+
+Best regards,
+The OnlyIfYouKnow Team
+
+---
+This invitation was sent to {{ email }}
+If you didn't expect this invitation, you can safely ignore this email.
+© 2025 OnlyIfYouKnow. All rights reserved.
