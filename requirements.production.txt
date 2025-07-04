@@ -18,27 +18,11 @@ django-storages
 sendgrid
 icalendar
 pytz
-
-# Production WSGI server
-gunicorn
 gevent
-
-# Monitoring and logging
 sentry-sdk[django]
 django-prometheus
-
-# Performance
 django-redis
 hiredis
-
-# Security
 django-security
 django-csp
-
-# Database optimizations
-psycopg2-binary
-
-# Task scheduling
 django-celery-beat
-
-django-redis
