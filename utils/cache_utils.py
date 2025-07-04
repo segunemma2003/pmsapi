@@ -18,7 +18,7 @@ def cache_key_generator(*args, **kwargs):
     
     key = "_".join(key_parts)
     if len(key) > 200:  # Redis key length limit
-        key = hashlib.md5(key.encode()).hexdigest()[:32]
+        key = hashlib.sha256(key.encode()).hexdigest()[:32]
     
     return key
 
