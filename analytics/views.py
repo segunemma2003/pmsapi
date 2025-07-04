@@ -10,6 +10,7 @@ from .serializers import ActivityLogSerializer, AdminAnalyticsSerializer
 from django.db.models import Count, Sum, Q, Avg
 from django.utils import timezone
 from datetime import timedelta, datetime
+from django.db.models.functions import TruncDate
 
 class AnalyticsViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
@@ -214,7 +215,7 @@ class AnalyticsViewSet(viewsets.ReadOnlyModelViewSet):
             trunc_format = 'month'
         
         revenue_data = bookings.extra(
-            select={'period': f"DATE_TRUNC('{trunc_format}', created_at)"}
+            select={'period': f"TruncDate('{trunc_format}', created_at)"}
         ).values('period').annotate(
             revenue=Sum('total_amount'),
             bookings_count=Count('id'),
