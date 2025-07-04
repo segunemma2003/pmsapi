@@ -4,6 +4,9 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from .models import Property
 from beds24_integration.services import Beds24Service
+import logging
+
+logger = logging.getLogger(__name__)
 
 User = get_user_model()
 
@@ -174,7 +177,13 @@ def sync_booking_status_from_beds24(self):
                     booking.status = result['status']
                     booking.save()
                     updated_count += 1
-            except Exception:
+            except (ConnectionError, TimeoutError) as e:
+                # Log network-related errors but continue with other bookings
+                logger.warning(f"Network error syncing booking {booking.id}: {str(e)}")
+                continue
+            except Exception as e:
+                # Log unexpected errors but continue processing
+                logger.error(f"Unexpected error syncing booking {booking.id}: {str(e)}")
                 continue
         
         return {'success': True, 'updated_count': updated_count}

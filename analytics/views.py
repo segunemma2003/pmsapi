@@ -10,9 +10,18 @@ from .serializers import ActivityLogSerializer, AdminAnalyticsSerializer
 from django.db.models import Count, Sum, Q, Avg
 from django.utils import timezone
 from datetime import timedelta, datetime
-from django.db.models.functions import TruncDate
+from django.db.models.functions import TruncDate, TruncMonth, TruncWeek
+from rest_framework.throttling import UserRateThrottle
 
+
+
+
+class AnalyticsThrottle(UserRateThrottle):
+    scope = 'analytics'
+    rate = '100/hour'
+    
 class AnalyticsViewSet(viewsets.ReadOnlyModelViewSet):
+    throttle_classes = [AnalyticsThrottle]
     permission_classes = [permissions.IsAuthenticated]
     
     @action(detail=False, methods=['get'])
@@ -171,6 +180,12 @@ class AnalyticsViewSet(viewsets.ReadOnlyModelViewSet):
         group_by = request.GET.get('group_by', 'month')  # day, week, month
         
         # Default to last 12 months if no dates provided
+        
+        if group_by not in ['day', 'week', 'month']:
+            return Response(
+                {'error': 'Invalid group_by parameter. Must be day, week, or month'},
+                status=400
+            )
         if not end_date:
             end_date = timezone.now().date()
         else:
@@ -203,20 +218,18 @@ class AnalyticsViewSet(viewsets.ReadOnlyModelViewSet):
                 status=403
             )
         
-        # Group data by specified period
+        # Use Django's safe date truncation functions
         if group_by == 'day':
             date_format = '%Y-%m-%d'
-            trunc_format = 'date'
+            bookings = bookings.annotate(period=TruncDate('created_at'))
         elif group_by == 'week':
             date_format = '%Y-W%U'
-            trunc_format = 'week'
+            bookings = bookings.annotate(period=TruncWeek('created_at'))
         else:  # month
             date_format = '%Y-%m'
-            trunc_format = 'month'
+            bookings = bookings.annotate(period=TruncMonth('created_at'))
         
-        revenue_data = bookings.extra(
-            select={'period': f"TruncDate('{trunc_format}', created_at)"}
-        ).values('period').annotate(
+        revenue_data = bookings.values('period').annotate(
             revenue=Sum('total_amount'),
             bookings_count=Count('id'),
             avg_booking_value=Avg('total_amount')
@@ -443,3 +456,4 @@ class AnalyticsViewSet(viewsets.ReadOnlyModelViewSet):
             cache.set(cache_key, metrics, timeout=300)
         
         return Response(metrics)
+    
