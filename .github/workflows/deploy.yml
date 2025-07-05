@@ -43,6 +43,11 @@ jobs:
           pip install -r requirements.txt
           pip install -r requirements.production.txt
 
+      - name: Run security scan
+        run: |
+          pip install safety
+          safety scan --output text --continue-on-error || echo "Security scan completed with warnings"
+
       - name: Run tests
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/test_db
@@ -57,17 +62,30 @@ jobs:
 
     steps:
       - name: Deploy to VPS
-        uses: appleboy/ssh-action@v0.1.10
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.VPS_PORT }}
+          timeout: 300s
           script: |
-            cd /opt/oifyk
+            # Ensure we're in the right directory
+            cd /opt/oifyk || {
+              echo "Directory /opt/oifyk not found. Setting up..."
+              sudo mkdir -p /opt/oifyk
+              sudo chown -R $USER:$USER /opt/oifyk
+              cd /opt/oifyk
+              
+              # Clone repository if it doesn't exist
+              if [ ! -d ".git" ]; then
+                git clone https://github.com/${{ github.repository }}.git .
+              fi
+            }
 
             # Pull latest code
-            git pull origin main
+            git fetch origin
+            git reset --hard origin/main
 
             # Update environment file with secrets
             cat > .env.production << EOF
@@ -108,8 +126,14 @@ jobs:
             FEATURE_EMAIL=True
             FEATURE_ANALYTICS=True
             FEATURE_RATE_LIMITING=True
+
+            # Admin credentials
+            ADMIN_EMAIL=${{ secrets.ADMIN_EMAIL }}
+            ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}
             EOF
 
-            # Run deployment script
+            # Make deploy script executable
             chmod +x scripts/deploy.sh
+
+            # Run deployment script
             ./scripts/deploy.sh
