@@ -128,7 +128,7 @@ CACHES = {
                 'max_connections': 100,
                 'retry_on_timeout': True,
             },
-            'PARSER_CLASS': 'redis.connection.HiredisParser',
+          
             'PICKLE_VERSION': -1,
         }
     },
