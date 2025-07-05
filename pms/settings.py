@@ -218,6 +218,9 @@ SIMPLE_JWT = {
     'TOKEN_TYPE_CLAIM': 'token_type',
 }
 
+
+ALLOWED_HOSTS = ['*']
+
 # CORS Configuration
 CORS_ALLOW_ALL_ORIGINS = DEBUG
 cors_origins = config('CORS_ALLOWED_ORIGINS', default='')
