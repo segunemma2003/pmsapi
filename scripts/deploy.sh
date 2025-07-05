@@ -162,25 +162,49 @@ $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml 
 
 # Final health check
 echo "🔍 Running final health checks..."
-sleep 10
 
-# Check HTTP health
-if curl -f http://localhost/api/health/ > /dev/null 2>&1; then
+# Check HTTP health (should always work)
+echo "🌐 Testing HTTP endpoint..."
+if curl -f -m 10 http://localhost/api/health/ > /dev/null 2>&1; then
     echo "✅ HTTP health check passed"
+    http_working=true
 else
     echo "❌ HTTP health check failed"
+    http_working=false
     HEALTH_FAILED=true
 fi
 
-# Check HTTPS health (if certificates were obtained)
-if curl -f -k https://localhost/api/health/ > /dev/null 2>&1; then
+# Check HTTPS health (may take time)
+echo "🔒 Testing HTTPS endpoint..."
+if curl -f -k -m 10 https://localhost/api/health/ > /dev/null 2>&1; then
     echo "✅ HTTPS health check passed"
-elif curl -f http://localhost/api/health/ > /dev/null 2>&1; then
+    https_working=true
+elif [ "$http_working" = true ]; then
     echo "ℹ️ HTTPS not yet available, but HTTP is working"
     echo "🔧 SSL certificates may still be initializing"
+    https_working=false
 else
     echo "❌ Both HTTP and HTTPS health checks failed"
+    https_working=false
     HEALTH_FAILED=true
+fi
+
+# Test external connectivity (if DNS is set up)
+echo "🌍 Testing external connectivity..."
+if curl -f -m 15 http://api.oifyk.com/api/health/ > /dev/null 2>&1; then
+    echo "✅ External HTTP connectivity working"
+elif [ "$http_working" = true ]; then
+    echo "ℹ️ Local HTTP working but external connectivity may need DNS setup"
+else
+    echo "⚠️ External HTTP connectivity not available"
+fi
+
+if curl -f -m 15 https://api.oifyk.com/api/health/ > /dev/null 2>&1; then
+    echo "✅ External HTTPS connectivity working"
+elif [ "$https_working" = true ]; then
+    echo "ℹ️ Local HTTPS working but external HTTPS may need DNS setup"
+else
+    echo "ℹ️ External HTTPS not yet available (normal during initial setup)"
 fi
 
 # Show service status

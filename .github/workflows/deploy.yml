@@ -68,8 +68,8 @@ jobs:
           username: ${{ secrets.VPS_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.VPS_PORT }}
-          timeout: 900s # Extended timeout for SSL setup
-          command_timeout: 600s
+          timeout: 1200s # 20 minutes for SSL setup
+          command_timeout: 900s # 15 minutes per command
           script: |
             # Set environment variables for the deployment
             export ADMIN_EMAIL="${{ secrets.ADMIN_EMAIL }}"
@@ -311,23 +311,105 @@ jobs:
             # Make deploy script executable
             chmod +x scripts/deploy.sh
 
-            # Run deployment script with better error handling
-            if ! ./scripts/deploy.sh; then
-              echo "❌ Deployment failed!"
-              echo "🔍 Docker service status:"
-              sudo systemctl status docker || true
-              echo "🔍 Docker version:"
+            # Run deployment script with comprehensive error handling
+            echo "🚀 Starting deployment process..."
+
+            if timeout 1200 ./scripts/deploy.sh; then
+              echo "✅ Deployment completed successfully!"
+            else
+              DEPLOY_EXIT_CODE=$?
+              echo "❌ Deployment failed with exit code: $DEPLOY_EXIT_CODE"
+              
+              echo "🔍 System Information:"
+              echo "📊 Docker service status:"
+              sudo systemctl status docker --no-pager || true
+              
+              echo "📊 Docker version:"
               docker --version || true
-              echo "🔍 Docker Compose versions:"
+              
+              echo "📊 Docker Compose versions:"
               docker compose version || echo "Docker Compose plugin not available"
               docker-compose --version || echo "Standalone docker-compose not available"
-              echo "🔍 Available images:"
-              docker images || true
-              echo "🔍 Running containers:"
-              docker ps -a || true
-              echo "🔍 Recent logs from services:"
-              docker compose --env-file .env.production -f docker-compose.production.yml logs --tail=50 web || echo "No web logs available"
-              docker compose --env-file .env.production -f docker-compose.production.yml logs --tail=50 nginx || echo "No nginx logs available"
+              
+              echo "📊 Available Docker images:"
+              docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}" || true
+              
+              echo "📊 All containers status:"
+              docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" || true
+              
+              echo "📊 Docker system info:"
+              docker system df || true
+              
+              echo "📊 Network information:"
+              docker network ls || true
+              
+              # Check if env file exists
+              if [ -f ".env.production" ]; then
+                echo "✅ Environment file exists"
+              else
+                echo "❌ Environment file missing!"
+              fi
+              
+              # Check if docker-compose file exists
+              if [ -f "docker-compose.production.yml" ]; then
+                echo "✅ Docker compose file exists"
+              else
+                echo "❌ Docker compose file missing!"
+              fi
+              
+              echo "📋 Service logs (if available):"
+              
+              # Web service logs
+              echo "🌐 Web service logs:"
+              docker compose --env-file .env.production -f docker-compose.production.yml logs --tail=100 web 2>/dev/null || \
+              docker logs $(docker ps -aq --filter "name=.*web.*" | head -1) 2>/dev/null || \
+              echo "No web service logs available"
+              
+              # Nginx logs  
+              echo "🔒 Nginx service logs:"
+              docker compose --env-file .env.production -f docker-compose.production.yml logs --tail=100 nginx 2>/dev/null || \
+              docker logs $(docker ps -aq --filter "name=.*nginx.*" | head -1) 2>/dev/null || \
+              echo "No nginx service logs available"
+              
+              # Database logs
+              echo "💾 Database service logs:"
+              docker compose --env-file .env.production -f docker-compose.production.yml logs --tail=50 db 2>/dev/null || \
+              docker logs $(docker ps -aq --filter "name=.*db.*" | head -1) 2>/dev/null || \
+              echo "No database service logs available"
+              
+              # Redis logs
+              echo "🔴 Redis service logs:"
+              docker compose --env-file .env.production -f docker-compose.production.yml logs --tail=30 redis 2>/dev/null || \
+              docker logs $(docker ps -aq --filter "name=.*redis.*" | head -1) 2>/dev/null || \
+              echo "No redis service logs available"
+              
+              # Certbot logs
+              echo "🔐 SSL/Certbot logs:"
+              docker compose --env-file .env.production -f docker-compose.production.yml logs --tail=50 certbot 2>/dev/null || \
+              docker logs $(docker ps -aq --filter "name=.*certbot.*" | head -1) 2>/dev/null || \
+              echo "No certbot service logs available"
+              
+              echo "📊 Disk space:"
+              df -h || true
+              
+              echo "📊 Memory usage:"
+              free -h || true
+              
+              echo "📊 Load average:"
+              uptime || true
+              
+              echo "🔍 Checking specific connectivity:"
+              
+              # Test internal connectivity
+              echo "Testing internal connectivity..."
+              curl -f http://localhost:8000/api/health/ -m 10 2>/dev/null && echo "✅ Direct web service reachable" || echo "❌ Direct web service unreachable"
+              curl -f http://localhost/api/health/ -m 10 2>/dev/null && echo "✅ Nginx HTTP reachable" || echo "❌ Nginx HTTP unreachable"
+              curl -f -k https://localhost/api/health/ -m 10 2>/dev/null && echo "✅ Nginx HTTPS reachable" || echo "❌ Nginx HTTPS unreachable"
+              
+              # Check ports
+              echo "📊 Port status:"
+              netstat -tlnp | grep -E ':(80|443|8000|5432|6379)\s' || echo "No relevant ports found"
+              
               exit 1
             fi
 
