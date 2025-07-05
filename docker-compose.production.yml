@@ -135,17 +135,7 @@ services:
     networks:
       - oifyk_network
 
-  monitoring:
-    image: prom/prometheus:latest
-    container_name: oifyk_prometheus
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
-      - prometheus_data:/prometheus
-    restart: unless-stopped
-    networks:
-      - oifyk_network
+  
 
 volumes:
   postgres_data:
