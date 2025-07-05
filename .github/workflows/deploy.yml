@@ -68,8 +68,13 @@ jobs:
           username: ${{ secrets.VPS_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.VPS_PORT }}
-          timeout: 300s
+          timeout: 600s
+          command_timeout: 300s
           script: |
+            # Set environment variables for the deployment
+            export ADMIN_EMAIL="${{ secrets.ADMIN_EMAIL }}"
+            export ADMIN_PASSWORD="${{ secrets.ADMIN_PASSWORD }}"
+
             # Ensure we're in the right directory
             cd /opt/oifyk || {
               echo "Directory /opt/oifyk not found. Setting up..."
@@ -135,5 +140,18 @@ jobs:
             # Make deploy script executable
             chmod +x scripts/deploy.sh
 
-            # Run deployment script
-            ./scripts/deploy.sh
+            # Run deployment script with better error handling
+            if ! ./scripts/deploy.sh; then
+              echo "❌ Deployment failed!"
+              echo "🔍 Docker service status:"
+              sudo systemctl status docker || true
+              echo "🔍 Docker version:"
+              docker --version || true
+              echo "🔍 Docker Compose version:"
+              docker compose version || docker-compose --version || true
+              echo "🔍 Available images:"
+              docker images || true
+              echo "🔍 Running containers:"
+              docker ps -a || true
+              exit 1
+            fi
