@@ -20,7 +20,7 @@ if ! sudo systemctl is-active --quiet docker; then
     sudo systemctl enable docker
 fi
 
-# Check if docker compose is available (newer versions use 'docker compose' instead of 'docker-compose')
+# Check if docker compose is available
 if docker compose version &> /dev/null; then
     DOCKER_COMPOSE_CMD="docker compose"
 elif command -v docker-compose &> /dev/null; then
@@ -39,24 +39,20 @@ git pull origin main
 
 # Build and start services
 $DOCKER_COMPOSE_CMD -f docker-compose.production.yml down || true
-$DOCKER_COMPOSE_CMD -f docker-compose.production.yml build --no-cache
 $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml build --no-cache
 $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml up -d
-
 
 # Wait for services to be ready
 echo "⏳ Waiting for services to start..."
 sleep 30
 
 # Run migrations
-$DOCKER_COMPOSE_CMD  --env-file .env.production -f docker-compose.production.yml exec -T web python manage.py migrate --noinput
-
-
+$DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml exec -T web python manage.py migrate --noinput
 
 # Collect static files
 $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml exec -T web python manage.py collectstatic --noinput
 
-# Setup production environment with admin credentials from environment variables
+# Setup production admin if needed
 if [ ! -z "$ADMIN_EMAIL" ] && [ ! -z "$ADMIN_PASSWORD" ]; then
     $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml exec -T web python manage.py shell -c "
 from django.contrib.auth import get_user_model
@@ -67,6 +63,16 @@ if not User.objects.filter(email='$ADMIN_EMAIL').exists():
 else:
     print('Admin user already exists')
 "
+fi
+
+# Run certbot only if certificate does not exist
+if [ ! -f "./certbot/conf/live/api.oifyk.com/fullchain.pem" ]; then
+    echo "🔐 Generating SSL certificate with certbot..."
+    $DOCKER_COMPOSE_CMD -f docker-compose.production.yml run --rm certbot
+    echo "🔁 Reloading nginx to apply SSL certificates..."
+    $DOCKER_COMPOSE_CMD -f docker-compose.production.yml exec nginx nginx -s reload
+else
+    echo "🔐 SSL certificate already exists. Skipping certbot generation."
 fi
 
 # Health check
