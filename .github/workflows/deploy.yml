@@ -147,11 +147,15 @@ jobs:
               sudo systemctl status docker || true
               echo "🔍 Docker version:"
               docker --version || true
-              echo "🔍 Docker Compose version:"
-              docker compose version || docker-compose --version || true
+              echo "🔍 Docker Compose versions:"
+              docker compose version || echo "Docker Compose plugin not available"
+              docker-compose --version || echo "Standalone docker-compose not available"
+              /usr/local/bin/docker-compose --version || echo "Local docker-compose not available"
               echo "🔍 Available images:"
               docker images || true
               echo "🔍 Running containers:"
               docker ps -a || true
+              echo "🔍 Recent logs from web service:"
+              docker logs $(docker ps -aq --filter ancestor=*web* | head -1) || echo "No web container found"
               exit 1
             fi
