@@ -50,15 +50,11 @@ git reset --hard origin/main
 echo "📁 Creating necessary directories..."
 mkdir -p certbot/conf certbot/www logs db_backups ssl
 
-# Create SSL initialization script
-echo "🔧 Setting up SSL initialization..."
-chmod +x ssl-init.sh
-
 # Stop existing services
 echo "🛑 Stopping existing services..."
 $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml down || true
 
-# Remove old containers and images
+# Remove old containers and clean up
 echo "🧹 Cleaning up old containers..."
 docker system prune -f
 
@@ -86,37 +82,20 @@ while ! $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.product
 done
 echo "✅ Database is ready"
 
-# Start application services
-echo "🚀 Starting application services..."
-$DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml up -d web celery celery-beat
+# Start web service first (without nginx)
+echo "🚀 Starting web application..."
+$DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml up -d web
 
-# Wait for application to be ready
-echo "⏳ Waiting for application to be ready..."
-timeout=60
-counter=0
-while ! curl -f http://localhost:8000/api/health/ > /dev/null 2>&1; do
-    if [ $counter -eq $timeout ]; then
-        echo "❌ Application failed to start within $timeout seconds"
-        $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml logs web
-        exit 1
-    fi
-    echo "⏳ Waiting for application... ($counter/$timeout)"
-    sleep 2
-    counter=$((counter + 1))
-done
-echo "✅ Application is ready"
-
-# Run migrations
+# Run migrations and setup
 echo "📊 Running database migrations..."
 $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml exec -T web python manage.py migrate --noinput
 
-# Collect static files
 echo "📁 Collecting static files..."
 $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml exec -T web python manage.py collectstatic --noinput
 
-# Setup production data
-echo "⚙️ Setting up production environment..."
+# Setup admin user if provided
 if [ ! -z "$ADMIN_EMAIL" ] && [ ! -z "$ADMIN_PASSWORD" ]; then
+    echo "👤 Setting up admin user..."
     $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml exec -T web python manage.py shell -c "
 from django.contrib.auth import get_user_model
 User = get_user_model()
@@ -130,121 +109,78 @@ if not User.objects.filter(email='$ADMIN_EMAIL').exists():
 else:
     print('ℹ️ Admin user already exists')
 "
-else
-    echo "⚠️ ADMIN_EMAIL and ADMIN_PASSWORD not set, skipping admin user creation"
 fi
 
-# Start nginx with SSL initialization
-echo "🌐 Starting nginx with SSL initialization..."
+# Wait for web service to be ready
+echo "⏳ Waiting for web application to be ready..."
+timeout=120
+counter=0
+while ! curl -f http://localhost:8000/api/health/ > /dev/null 2>&1; do
+    if [ $counter -eq $timeout ]; then
+        echo "❌ Web application failed to start within $timeout seconds"
+        echo "📋 Web service logs:"
+        $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml logs --tail=50 web
+        exit 1
+    fi
+    echo "⏳ Waiting for web application... ($counter/$timeout)"
+    sleep 2
+    counter=$((counter + 1))
+done
+echo "✅ Web application is ready"
+
+# Start nginx with simplified configuration (HTTP only first)
+echo "🌐 Starting nginx with HTTP-only configuration..."
 $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml up -d nginx
 
-# Wait for nginx to be ready
-echo "⏳ Waiting for nginx to initialize SSL..."
-timeout=120  # Extended timeout for SSL setup
-counter=0
-while ! curl -f http://localhost/api/health/ > /dev/null 2>&1 && [ $counter -lt $timeout ]; do
-    echo "⏳ Waiting for nginx SSL initialization... ($counter/$timeout)"
-    sleep 2
-    counter=$((counter + 2))
-done
+# Wait for nginx to start
+echo "⏳ Waiting for nginx to start..."
+sleep 10
 
-if [ $counter -ge $timeout ]; then
-    echo "⚠️ Nginx SSL initialization taking longer than expected"
-    echo "📋 Checking nginx logs..."
-    $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml logs nginx
+# Test HTTP connectivity
+echo "🔍 Testing HTTP connectivity..."
+if curl -f http://localhost/api/health/ > /dev/null 2>&1; then
+    echo "✅ HTTP connectivity working"
 else
-    echo "✅ Nginx is ready"
-fi
-
-# Start automatic certificate renewal
-echo "🔄 Starting automatic certificate renewal service..."
-$DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml up -d certbot-renew
-
-# Final health check
-echo "🔍 Running final health checks..."
-
-# Check HTTP health (should always work)
-echo "🌐 Testing HTTP endpoint..."
-if curl -f -m 10 http://localhost/api/health/ > /dev/null 2>&1; then
-    echo "✅ HTTP health check passed"
-    http_working=true
-else
-    echo "❌ HTTP health check failed"
-    http_working=false
-    HEALTH_FAILED=true
-fi
-
-# Check HTTPS health (may take time)
-echo "🔒 Testing HTTPS endpoint..."
-if curl -f -k -m 10 https://localhost/api/health/ > /dev/null 2>&1; then
-    echo "✅ HTTPS health check passed"
-    https_working=true
-elif [ "$http_working" = true ]; then
-    echo "ℹ️ HTTPS not yet available, but HTTP is working"
-    echo "🔧 SSL certificates may still be initializing"
-    https_working=false
-else
-    echo "❌ Both HTTP and HTTPS health checks failed"
-    https_working=false
-    HEALTH_FAILED=true
-fi
-
-# Test external connectivity (if DNS is set up)
-echo "🌍 Testing external connectivity..."
-if curl -f -m 15 http://api.oifyk.com/api/health/ > /dev/null 2>&1; then
-    echo "✅ External HTTP connectivity working"
-elif [ "$http_working" = true ]; then
-    echo "ℹ️ Local HTTP working but external connectivity may need DNS setup"
-else
-    echo "⚠️ External HTTP connectivity not available"
-fi
-
-if curl -f -m 15 https://api.oifyk.com/api/health/ > /dev/null 2>&1; then
-    echo "✅ External HTTPS connectivity working"
-elif [ "$https_working" = true ]; then
-    echo "ℹ️ Local HTTPS working but external HTTPS may need DNS setup"
-else
-    echo "ℹ️ External HTTPS not yet available (normal during initial setup)"
-fi
-
-# Show service status
-echo "📊 Service status:"
-$DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml ps
-
-if [ "$HEALTH_FAILED" = true ]; then
-    echo "❌ Health checks failed!"
-    echo "🔍 Checking service logs..."
-    echo "📋 Web service logs:"
-    $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml logs --tail=50 web
-    echo "📋 Nginx service logs:"
+    echo "❌ HTTP connectivity failed"
+    echo "📋 Nginx logs:"
     $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml logs --tail=50 nginx
     exit 1
 fi
 
-# Show SSL certificate status
-echo "🔐 SSL Certificate status:"
-if [ -f "./certbot/conf/live/api.oifyk.com/fullchain.pem" ]; then
-    echo "✅ SSL certificates are present"
-    openssl x509 -in ./certbot/conf/live/api.oifyk.com/fullchain.pem -text -noout | grep -E "(Subject:|Not After :)"
+# Start remaining services
+echo "🚀 Starting remaining services..."
+$DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml up -d celery
+
+# Start celery-beat with retry logic
+echo "📅 Starting celery beat scheduler..."
+$DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml up -d celery-beat || {
+    echo "⚠️ Celery beat failed to start, retrying..."
+    sleep 5
+    $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml up -d celery-beat
+}
+
+# Final health checks
+echo "🔍 Running final health checks..."
+
+# Check all services
+echo "📊 Service status:"
+$DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml ps
+
+# Test connectivity
+echo "🌐 Testing connectivity..."
+if curl -f http://localhost/api/health/ > /dev/null 2>&1; then
+    echo "✅ HTTP health check passed"
 else
-    echo "⚠️ SSL certificates not yet obtained"
-    echo "🔧 Check nginx logs for SSL initialization progress"
+    echo "❌ HTTP health check failed"
+    exit 1
 fi
 
-# Setup log rotation
-echo "📝 Setting up log rotation..."
-sudo tee /etc/logrotate.d/oifyk > /dev/null <<EOF
-/opt/oifyk/logs/*.log {
-    daily
-    missingok
-    rotate 14
-    compress
-    delaycompress
-    notifempty
-    copytruncate
-    su root root
-}
-EOF
+# Test internal connectivity
+if curl -f http://localhost:8000/api/health/ > /dev/null 2>&1; then
+    echo "✅ Direct web service connectivity working"
+else
+    echo "⚠️ Direct web service connectivity issue"
+fi
 
 echo "🎉 Deployment completed successfully!"
 echo ""
@@ -252,8 +188,7 @@ echo "📋 Quick Commands:"
 echo "  View logs: $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml logs -f"
 echo "  Restart services: $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml restart"
 echo "  Check status: $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml ps"
-echo "  Update SSL: $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml restart nginx"
 echo ""
 echo "🌐 Your API should be available at:"
 echo "  HTTP: http://api.oifyk.com"
-echo "  HTTPS: https://api.oifyk.com (if SSL certificates were obtained)"
+echo "  ⚠️ HTTPS: Run SSL setup separately with: ./scripts/ssl-setup.sh"

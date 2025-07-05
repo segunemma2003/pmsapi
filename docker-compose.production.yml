@@ -14,27 +14,26 @@ services:
       - ./certbot/www:/var/www/certbot:ro
       - static_volume:/app/staticfiles:ro
       - media_volume:/app/media:ro
-      - ./ssl-init.sh:/ssl-init.sh:ro
     depends_on:
       - web
     restart: unless-stopped
     networks:
       - oifyk_network
-    command: >
-      sh -c "chmod +x /ssl-init.sh && /ssl-init.sh"
+    # Use simple nginx startup instead of complex SSL initialization
+    command: ["nginx", "-g", "daemon off;"]
 
   web:
     build: 
       context: .
       dockerfile: Dockerfile.production
     container_name: oifyk_web
-    command: gunicorn pms.wsgi:application --bind 0.0.0.0:8000 --workers 4 --worker-class gevent --worker-connections 1000 --max-requests 1000 --max-requests-jitter 100 --timeout 30 --keep-alive 2
+    command: gunicorn pms.wsgi:application --bind 0.0.0.0:8000 --workers 4 --worker-class gevent --worker-connections 1000 --max-requests 1000 --max-requests-jitter 100 --timeout 30 --keep-alive 2 --log-level info
     volumes:
       - static_volume:/app/staticfiles
       - media_volume:/app/media
       - ./logs:/app/logs
-    expose:
-      - "8000"
+    ports:
+      - "8000:8000"  # Expose for debugging during deployment
     env_file:
       - .env.production
     depends_on:
@@ -69,29 +68,12 @@ services:
       timeout: 10s
       retries: 5
 
-  db_replica:
-    image: postgres:15-alpine
-    container_name: oifyk_db_replica
-    volumes:
-      - postgres_replica_data:/var/lib/postgresql/data/
-    environment:
-      POSTGRES_DB: ${DB_NAME}
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_MASTER_SERVICE: db
-    restart: unless-stopped
-    networks:
-      - oifyk_network
-    depends_on:
-      - db
-
   redis:
     image: redis:7-alpine
     container_name: oifyk_redis
     command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
-      - ./redis.conf:/usr/local/etc/redis/redis.conf
     restart: unless-stopped
     networks:
       - oifyk_network
@@ -136,9 +118,11 @@ services:
     depends_on:
       - db
       - redis
+      - web  # Ensure web is ready before starting beat
     restart: unless-stopped
     networks:
       - oifyk_network
+    # Remove healthcheck for beat as it doesn't respond to ping the same way
 
   certbot:
     image: certbot/certbot
@@ -146,11 +130,8 @@ services:
     volumes:
       - ./certbot/conf:/etc/letsencrypt
       - ./certbot/www:/var/www/certbot
-    command: certonly --webroot -w /var/www/certbot --email ${ADMIN_EMAIL:-admin@oifyk.com} --agree-tos --no-eff-email --force-renewal -d api.oifyk.com
-    depends_on:
-      - nginx
-    networks:
-      - oifyk_network
+    # Don't run certbot automatically - use manual setup
+    profiles: ["manual"]
 
   # Automatic certificate renewal
   certbot-renew:
@@ -167,18 +148,16 @@ services:
         certbot renew --quiet --webroot -w /var/www/certbot;
         if [ $$? -eq 0 ]; then
           echo 'Certificates renewed, reloading nginx...';
-          docker exec oifyk_nginx nginx -s reload;
+          docker exec oifyk_nginx nginx -s reload 2>/dev/null || echo 'Nginx reload failed';
         fi;
       done"
-    depends_on:
-      - certbot
     restart: unless-stopped
     networks:
       - oifyk_network
+    profiles: ["ssl"]  # Only start after SSL is set up
 
 volumes:
   postgres_data:
-  postgres_replica_data:
   redis_data:
   static_volume:
   media_volume:
