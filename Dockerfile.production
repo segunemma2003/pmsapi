@@ -21,7 +21,6 @@ WORKDIR /app
 
 # Install Python dependencies
 COPY requirements.txt requirements.production.txt ./
-COPY .env.production .env
 RUN pip install --no-cache-dir -r requirements.production.txt
 
 # Copy project
