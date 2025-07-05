@@ -12,9 +12,9 @@ echo "🗄️ Starting backup process..."
 # Create backup directory
 mkdir -p $BACKUP_DIR
 
-# Database backup
+# Database backup (using docker compose instead of docker-compose)
 echo "📊 Backing up database..."
-docker-compose -f docker-compose.production.yml exec -T db pg_dump -U $DB_USER -d $DB_NAME | gzip > $DB_BACKUP_FILE
+docker compose -f docker-compose.production.yml exec -T db pg_dump -U $DB_USER -d $DB_NAME | gzip > $DB_BACKUP_FILE
 
 # Media files backup (if not using S3)
 if [ "$USE_S3" != "True" ]; then
