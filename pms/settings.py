@@ -26,6 +26,8 @@ THIRD_PARTY_APPS = [
     'djoser',
 ]
 
+CELERY_BEAT_SCHEDULER='django_celery_beat.schedulers:DatabaseScheduler'
+
 LOCAL_APPS = [
     'accounts',
     'properties',
