@@ -8,16 +8,20 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf
-      - ./certbot/conf:/etc/letsencrypt
-      - ./certbot/www:/var/www/certbot
-      - static_volume:/app/staticfiles
-      - media_volume:/app/media
+      - ./nginx-initial.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx-ssl.conf:/etc/nginx/nginx-ssl.conf:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./certbot/www:/var/www/certbot:ro
+      - static_volume:/app/staticfiles:ro
+      - media_volume:/app/media:ro
+      - ./ssl-init.sh:/ssl-init.sh:ro
     depends_on:
       - web
     restart: unless-stopped
     networks:
       - oifyk_network
+    command: >
+      sh -c "chmod +x /ssl-init.sh && /ssl-init.sh"
 
   web:
     build: 
@@ -142,11 +146,33 @@ services:
     volumes:
       - ./certbot/conf:/etc/letsencrypt
       - ./certbot/www:/var/www/certbot
-    entrypoint: ""
+    command: certonly --webroot -w /var/www/certbot --email ${ADMIN_EMAIL:-admin@oifyk.com} --agree-tos --no-eff-email --force-renewal -d api.oifyk.com
+    depends_on:
+      - nginx
+    networks:
+      - oifyk_network
+
+  # Automatic certificate renewal
+  certbot-renew:
+    image: certbot/certbot
+    container_name: oifyk_certbot_renew
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     command: >
-      sh -c "certbot certonly --webroot -w /var/www/certbot
-      --email admin@oifyk.com --agree-tos --no-eff-email
-      -d api.oifyk.com"
+      sh -c "while :; do
+        sleep 12h;
+        echo 'Checking for certificate renewal...';
+        certbot renew --quiet --webroot -w /var/www/certbot;
+        if [ $$? -eq 0 ]; then
+          echo 'Certificates renewed, reloading nginx...';
+          docker exec oifyk_nginx nginx -s reload;
+        fi;
+      done"
+    depends_on:
+      - certbot
+    restart: unless-stopped
     networks:
       - oifyk_network
 
@@ -156,7 +182,6 @@ volumes:
   redis_data:
   static_volume:
   media_volume:
-  prometheus_data:
 
 networks:
   oifyk_network:

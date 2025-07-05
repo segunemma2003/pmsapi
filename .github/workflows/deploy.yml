@@ -68,8 +68,8 @@ jobs:
           username: ${{ secrets.VPS_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.VPS_PORT }}
-          timeout: 600s
-          command_timeout: 300s
+          timeout: 900s # Extended timeout for SSL setup
+          command_timeout: 600s
           script: |
             # Set environment variables for the deployment
             export ADMIN_EMAIL="${{ secrets.ADMIN_EMAIL }}"
@@ -91,6 +91,177 @@ jobs:
             # Pull latest code
             git fetch origin
             git reset --hard origin/main
+
+            # Create SSL initialization script
+            cat > ssl-init.sh << 'EOF'
+            #!/bin/sh
+
+            set -e
+
+            echo "🔧 Starting SSL initialization..."
+
+            # Domain and email for certificates
+            DOMAIN="api.oifyk.com"
+            EMAIL="${ADMIN_EMAIL:-admin@oifyk.com}"
+
+            # Paths
+            CERT_PATH="/etc/letsencrypt/live/$DOMAIN"
+            NGINX_CONF="/etc/nginx/nginx.conf"
+            NGINX_SSL_CONF="/etc/nginx/nginx-ssl.conf"
+
+            # Function to check if certificates exist and are valid
+            check_certificates() {
+                if [ -f "$CERT_PATH/fullchain.pem" ] && [ -f "$CERT_PATH/privkey.pem" ]; then
+                    # Check if certificate is valid (not expired)
+                    if openssl x509 -checkend 86400 -noout -in "$CERT_PATH/fullchain.pem" >/dev/null 2>&1; then
+                        echo "✅ Valid SSL certificates found"
+                        return 0
+                    else
+                        echo "⚠️ SSL certificates found but expiring soon or expired"
+                        return 1
+                    fi
+                else
+                    echo "❌ No SSL certificates found"
+                    return 1
+                fi
+            }
+
+            # Function to start nginx with HTTP-only configuration
+            start_nginx_http() {
+                echo "🌐 Starting nginx with HTTP-only configuration for certificate generation..."
+                nginx -g "daemon off;" &
+                NGINX_PID=$!
+                echo "Nginx HTTP started with PID: $NGINX_PID"
+                
+                # Wait for nginx to be ready
+                for i in $(seq 1 30); do
+                    if curl -f http://localhost/api/health/ >/dev/null 2>&1; then
+                        echo "✅ Nginx HTTP is ready"
+                        return 0
+                    fi
+                    echo "⏳ Waiting for nginx to be ready... ($i/30)"
+                    sleep 2
+                done
+                
+                echo "❌ Nginx failed to start properly"
+                return 1
+            }
+
+            # Function to obtain SSL certificates
+            obtain_certificates() {
+                echo "🔐 Obtaining SSL certificates from Let's Encrypt..."
+                
+                # Ensure certbot directories exist
+                mkdir -p /var/www/certbot
+                mkdir -p /etc/letsencrypt
+                
+                # Wait for certbot service to be available
+                echo "⏳ Waiting for backend to be ready..."
+                sleep 10
+                
+                # Try to obtain certificate using webroot
+                if timeout 300 sh -c '
+                    while ! curl -f http://localhost/api/health/ >/dev/null 2>&1; do
+                        echo "Waiting for backend..."
+                        sleep 5
+                    done
+                '; then
+                    echo "Backend is ready, obtaining certificates..."
+                    
+                    # Use certbot with webroot method
+                    certbot certonly \
+                        --webroot \
+                        -w /var/www/certbot \
+                        --email "$EMAIL" \
+                        --agree-tos \
+                        --no-eff-email \
+                        --force-renewal \
+                        -d "$DOMAIN" \
+                        --non-interactive \
+                        --keep-until-expiring || return 1
+                        
+                    echo "✅ SSL certificates obtained successfully"
+                    return 0
+                else
+                    echo "❌ Backend not ready, cannot obtain certificates"
+                    return 1
+                fi
+            }
+
+            # Function to reload nginx with SSL configuration
+            reload_nginx_ssl() {
+                echo "🔒 Reloading nginx with SSL configuration..."
+                
+                if [ -f "$NGINX_SSL_CONF" ]; then
+                    cp "$NGINX_SSL_CONF" "$NGINX_CONF"
+                    
+                    # Test nginx configuration
+                    if nginx -t; then
+                        nginx -s reload
+                        echo "✅ Nginx reloaded with SSL configuration"
+                        return 0
+                    else
+                        echo "❌ Nginx SSL configuration test failed"
+                        return 1
+                    fi
+                else
+                    echo "❌ SSL configuration file not found"
+                    return 1
+                fi
+            }
+
+            # Main execution
+            main() {
+                echo "🚀 Initializing SSL setup for $DOMAIN..."
+                
+                # Start with HTTP-only configuration
+                start_nginx_http
+                
+                # Check if we already have valid certificates
+                if check_certificates; then
+                    echo "✅ Valid certificates found, switching to SSL configuration..."
+                    # Kill the HTTP-only nginx
+                    kill $NGINX_PID 2>/dev/null || true
+                    sleep 2
+                    
+                    # Load SSL configuration and start
+                    reload_nginx_ssl
+                    exec nginx -g "daemon off;"
+                else
+                    echo "📜 Need to obtain new certificates..."
+                    
+                    # Wait a bit for nginx to fully start
+                    sleep 5
+                    
+                    # Try to obtain certificates
+                    if obtain_certificates; then
+                        echo "✅ Certificates obtained, switching to SSL..."
+                        
+                        # Kill the HTTP-only nginx
+                        kill $NGINX_PID 2>/dev/null || true
+                        sleep 2
+                        
+                        # Load SSL configuration and start
+                        reload_nginx_ssl
+                        exec nginx -g "daemon off;"
+                    else
+                        echo "❌ Failed to obtain certificates, continuing with HTTP-only"
+                        echo "🔧 Please check your DNS settings and try again"
+                        
+                        # Continue with HTTP-only
+                        wait $NGINX_PID
+                    fi
+                fi
+            }
+
+            # Handle signals properly
+            trap 'echo "🛑 Received signal, shutting down..."; kill $NGINX_PID 2>/dev/null || true; exit 0' TERM INT
+
+            # Run main function
+            main
+            EOF
+
+            chmod +x ssl-init.sh
 
             # Update environment file with secrets
             cat > .env.production << EOF
@@ -150,12 +321,32 @@ jobs:
               echo "🔍 Docker Compose versions:"
               docker compose version || echo "Docker Compose plugin not available"
               docker-compose --version || echo "Standalone docker-compose not available"
-              /usr/local/bin/docker-compose --version || echo "Local docker-compose not available"
               echo "🔍 Available images:"
               docker images || true
               echo "🔍 Running containers:"
               docker ps -a || true
-              echo "🔍 Recent logs from web service:"
-              docker logs $(docker ps -aq --filter ancestor=*web* | head -1) || echo "No web container found"
+              echo "🔍 Recent logs from services:"
+              docker compose --env-file .env.production -f docker-compose.production.yml logs --tail=50 web || echo "No web logs available"
+              docker compose --env-file .env.production -f docker-compose.production.yml logs --tail=50 nginx || echo "No nginx logs available"
               exit 1
             fi
+
+            # Final verification
+            echo "🔍 Final deployment verification..."
+            sleep 10
+
+            if curl -f http://localhost/api/health/ > /dev/null 2>&1; then
+              echo "✅ HTTP endpoint is working"
+            else
+              echo "❌ HTTP endpoint check failed"
+              exit 1
+            fi
+
+            # Check SSL if available
+            if curl -f -k https://localhost/api/health/ > /dev/null 2>&1; then
+              echo "✅ HTTPS endpoint is working"
+            else
+              echo "ℹ️ HTTPS not yet available (SSL may still be initializing)"
+            fi
+
+            echo "🎉 Deployment verification completed!"

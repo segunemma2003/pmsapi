@@ -34,61 +34,202 @@ fi
 
 echo "✅ Using Docker Compose command: $DOCKER_COMPOSE_CMD"
 
+# Check if environment file exists
+if [ ! -f ".env.production" ]; then
+    echo "❌ .env.production file not found!"
+    echo "📋 Please create .env.production file with your configuration"
+    exit 1
+fi
+
 # Pull latest code
-git pull origin main
+echo "📥 Pulling latest code..."
+git fetch origin
+git reset --hard origin/main
 
-# Build and start services
-$DOCKER_COMPOSE_CMD -f docker-compose.production.yml down || true
+# Create necessary directories
+echo "📁 Creating necessary directories..."
+mkdir -p certbot/conf certbot/www logs db_backups ssl
+
+# Create SSL initialization script
+echo "🔧 Setting up SSL initialization..."
+chmod +x ssl-init.sh
+
+# Stop existing services
+echo "🛑 Stopping existing services..."
+$DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml down || true
+
+# Remove old containers and images
+echo "🧹 Cleaning up old containers..."
+docker system prune -f
+
+# Build services
+echo "🔨 Building services..."
 $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml build --no-cache
-$DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml up -d
 
-# Wait for services to be ready
-echo "⏳ Waiting for services to start..."
-sleep 30
+# Start database and redis first
+echo "💾 Starting database and cache services..."
+$DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml up -d db redis
+
+# Wait for database to be ready
+echo "⏳ Waiting for database to be ready..."
+timeout=60
+counter=0
+while ! $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml exec -T db pg_isready -U ${DB_USER:-oifyk_user} -d ${DB_NAME:-oifyk_production} > /dev/null 2>&1; do
+    if [ $counter -eq $timeout ]; then
+        echo "❌ Database failed to start within $timeout seconds"
+        $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml logs db
+        exit 1
+    fi
+    echo "⏳ Waiting for database... ($counter/$timeout)"
+    sleep 2
+    counter=$((counter + 1))
+done
+echo "✅ Database is ready"
+
+# Start application services
+echo "🚀 Starting application services..."
+$DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml up -d web celery celery-beat
+
+# Wait for application to be ready
+echo "⏳ Waiting for application to be ready..."
+timeout=60
+counter=0
+while ! curl -f http://localhost:8000/api/health/ > /dev/null 2>&1; do
+    if [ $counter -eq $timeout ]; then
+        echo "❌ Application failed to start within $timeout seconds"
+        $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml logs web
+        exit 1
+    fi
+    echo "⏳ Waiting for application... ($counter/$timeout)"
+    sleep 2
+    counter=$((counter + 1))
+done
+echo "✅ Application is ready"
 
 # Run migrations
+echo "📊 Running database migrations..."
 $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml exec -T web python manage.py migrate --noinput
 
 # Collect static files
+echo "📁 Collecting static files..."
 $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml exec -T web python manage.py collectstatic --noinput
 
-# Setup production admin if needed
+# Setup production data
+echo "⚙️ Setting up production environment..."
 if [ ! -z "$ADMIN_EMAIL" ] && [ ! -z "$ADMIN_PASSWORD" ]; then
     $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml exec -T web python manage.py shell -c "
 from django.contrib.auth import get_user_model
 User = get_user_model()
 if not User.objects.filter(email='$ADMIN_EMAIL').exists():
-    User.objects.create_superuser('$ADMIN_EMAIL', '$ADMIN_EMAIL', '$ADMIN_PASSWORD')
-    print('Admin user created from environment variables')
+    user = User.objects.create_superuser('$ADMIN_EMAIL', '$ADMIN_EMAIL', '$ADMIN_PASSWORD')
+    user.user_type = 'admin'
+    user.status = 'active'
+    user.full_name = 'System Administrator'
+    user.save()
+    print('✅ Admin user created')
 else:
-    print('Admin user already exists')
+    print('ℹ️ Admin user already exists')
 "
-fi
-
-# Run certbot only if certificate does not exist
-if [ ! -f "./certbot/conf/live/api.oifyk.com/fullchain.pem" ]; then
-    echo "🔐 Generating SSL certificate with certbot..."
-    $DOCKER_COMPOSE_CMD -f docker-compose.production.yml run --rm certbot
-    echo "🔁 Reloading nginx to apply SSL certificates..."
-    $DOCKER_COMPOSE_CMD -f docker-compose.production.yml exec nginx nginx -s reload
 else
-    echo "🔐 SSL certificate already exists. Skipping certbot generation."
+    echo "⚠️ ADMIN_EMAIL and ADMIN_PASSWORD not set, skipping admin user creation"
 fi
 
-# Health check
-echo "🔍 Running health checks..."
+# Start nginx with SSL initialization
+echo "🌐 Starting nginx with SSL initialization..."
+$DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml up -d nginx
+
+# Wait for nginx to be ready
+echo "⏳ Waiting for nginx to initialize SSL..."
+timeout=120  # Extended timeout for SSL setup
+counter=0
+while ! curl -f http://localhost/api/health/ > /dev/null 2>&1 && [ $counter -lt $timeout ]; do
+    echo "⏳ Waiting for nginx SSL initialization... ($counter/$timeout)"
+    sleep 2
+    counter=$((counter + 2))
+done
+
+if [ $counter -ge $timeout ]; then
+    echo "⚠️ Nginx SSL initialization taking longer than expected"
+    echo "📋 Checking nginx logs..."
+    $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml logs nginx
+else
+    echo "✅ Nginx is ready"
+fi
+
+# Start automatic certificate renewal
+echo "🔄 Starting automatic certificate renewal service..."
+$DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml up -d certbot-renew
+
+# Final health check
+echo "🔍 Running final health checks..."
 sleep 10
 
-# Check if the application is responding
-if curl -f http://localhost/api/health/ || curl -f http://localhost:80/api/health/; then
-    echo "✅ Deployment successful!"
+# Check HTTP health
+if curl -f http://localhost/api/health/ > /dev/null 2>&1; then
+    echo "✅ HTTP health check passed"
 else
-    echo "❌ Health check failed!"
-    echo "🔍 Checking service status..."
-    $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml ps
-    echo "📋 Recent logs:"
+    echo "❌ HTTP health check failed"
+    HEALTH_FAILED=true
+fi
+
+# Check HTTPS health (if certificates were obtained)
+if curl -f -k https://localhost/api/health/ > /dev/null 2>&1; then
+    echo "✅ HTTPS health check passed"
+elif curl -f http://localhost/api/health/ > /dev/null 2>&1; then
+    echo "ℹ️ HTTPS not yet available, but HTTP is working"
+    echo "🔧 SSL certificates may still be initializing"
+else
+    echo "❌ Both HTTP and HTTPS health checks failed"
+    HEALTH_FAILED=true
+fi
+
+# Show service status
+echo "📊 Service status:"
+$DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml ps
+
+if [ "$HEALTH_FAILED" = true ]; then
+    echo "❌ Health checks failed!"
+    echo "🔍 Checking service logs..."
+    echo "📋 Web service logs:"
     $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml logs --tail=50 web
+    echo "📋 Nginx service logs:"
+    $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml logs --tail=50 nginx
     exit 1
 fi
 
+# Show SSL certificate status
+echo "🔐 SSL Certificate status:"
+if [ -f "./certbot/conf/live/api.oifyk.com/fullchain.pem" ]; then
+    echo "✅ SSL certificates are present"
+    openssl x509 -in ./certbot/conf/live/api.oifyk.com/fullchain.pem -text -noout | grep -E "(Subject:|Not After :)"
+else
+    echo "⚠️ SSL certificates not yet obtained"
+    echo "🔧 Check nginx logs for SSL initialization progress"
+fi
+
+# Setup log rotation
+echo "📝 Setting up log rotation..."
+sudo tee /etc/logrotate.d/oifyk > /dev/null <<EOF
+/opt/oifyk/logs/*.log {
+    daily
+    missingok
+    rotate 14
+    compress
+    delaycompress
+    notifempty
+    copytruncate
+    su root root
+}
+EOF
+
 echo "🎉 Deployment completed successfully!"
+echo ""
+echo "📋 Quick Commands:"
+echo "  View logs: $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml logs -f"
+echo "  Restart services: $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml restart"
+echo "  Check status: $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml ps"
+echo "  Update SSL: $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml restart nginx"
+echo ""
+echo "🌐 Your API should be available at:"
+echo "  HTTP: http://api.oifyk.com"
+echo "  HTTPS: https://api.oifyk.com (if SSL certificates were obtained)"
