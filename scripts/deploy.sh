@@ -40,6 +40,7 @@ git pull origin main
 # Build and start services
 $DOCKER_COMPOSE_CMD -f docker-compose.production.yml down || true
 $DOCKER_COMPOSE_CMD -f docker-compose.production.yml build --no-cache
+$DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml up -d
 $DOCKER_COMPOSE_CMD -f docker-compose.production.yml up -d
 
 # Wait for services to be ready
