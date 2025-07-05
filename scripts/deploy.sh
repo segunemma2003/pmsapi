@@ -49,14 +49,16 @@ echo "⏳ Waiting for services to start..."
 sleep 30
 
 # Run migrations
-$DOCKER_COMPOSE_CMD -f docker-compose.production.yml exec -T web python manage.py migrate --noinput
+$DOCKER_COMPOSE_CMD  --env-file .env.production -f docker-compose.production.yml exec -T web python manage.py migrate --noinput
+
+
 
 # Collect static files
-$DOCKER_COMPOSE_CMD -f docker-compose.production.yml exec -T web python manage.py collectstatic --noinput
+$DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml exec -T web python manage.py collectstatic --noinput
 
 # Setup production environment with admin credentials from environment variables
 if [ ! -z "$ADMIN_EMAIL" ] && [ ! -z "$ADMIN_PASSWORD" ]; then
-    $DOCKER_COMPOSE_CMD -f docker-compose.production.yml exec -T web python manage.py shell -c "
+    $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml exec -T web python manage.py shell -c "
 from django.contrib.auth import get_user_model
 User = get_user_model()
 if not User.objects.filter(email='$ADMIN_EMAIL').exists():
@@ -77,9 +79,9 @@ if curl -f http://localhost/api/health/ || curl -f http://localhost:80/api/healt
 else
     echo "❌ Health check failed!"
     echo "🔍 Checking service status..."
-    $DOCKER_COMPOSE_CMD -f docker-compose.production.yml ps
+    $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml ps
     echo "📋 Recent logs:"
-    $DOCKER_COMPOSE_CMD -f docker-compose.production.yml logs --tail=50 web
+    $DOCKER_COMPOSE_CMD --env-file .env.production -f docker-compose.production.yml logs --tail=50 web
     exit 1
 fi
 
