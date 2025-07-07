@@ -54,6 +54,7 @@ docker container rm -f oifyk_nginx oifyk_web oifyk_db oifyk_redis oifyk_celery o
 # Remove any orphaned networks
 echo "🌐 Cleaning up networks..."
 docker network rm oifyk_oifyk_network 2>/dev/null || true
+docker rm -f oifyk_redis oifyk_web oifyk_db oifyk_celery oifyk_celery_beat oifyk_nginx oifyk_certbot 2>/dev/null || true
 
 # Prune unused Docker resources
 echo "🧽 Pruning unused Docker resources..."
