@@ -4,6 +4,16 @@ set -e
 
 echo "🚀 Starting production deployment..."
 
+if [ -f ".env.production" ]; then
+    echo "🔄 Loading .env.production into shell"
+    set -o allexport
+    source .env.production
+    set +o allexport
+else
+    echo "❌ .env.production file not found!"
+    exit 1
+fi
+
 # Check if Docker is available
 if ! command -v docker &> /dev/null; then
     echo "❌ Docker not found. Please install Docker first."
