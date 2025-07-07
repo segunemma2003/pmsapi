@@ -12,6 +12,10 @@ LOGS_DIR = os.path.join(BASE_DIR, 'logs')
 if os.path.exists('/app'):
     # Docker environment
     LOGS_DIR = Path('/app/logs')
+    MEDIA_URL = '/media/'
+    MEDIA_ROOT = '/app/media'
+    STATIC_URL = '/static/'
+    STATIC_ROOT = '/app/staticfiles'
 else:
     # Local development or CI
     LOGS_DIR = BASE_DIR / 'logs'
