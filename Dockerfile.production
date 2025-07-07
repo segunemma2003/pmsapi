@@ -19,6 +19,8 @@ RUN apt-get update \
 # Set work directory
 WORKDIR /app
 
+RUN mkdir -p /app/logs && chmod 777 /app/logs
+
 # Install Python dependencies
 COPY requirements.production.txt ./
 RUN pip install --no-cache-dir -r requirements.production.txt
