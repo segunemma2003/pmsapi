@@ -261,9 +261,9 @@ if USE_S3:
     STATIC_URL = f'https://{AWS_S3_CUSTOM_DOMAIN}/static/'
 else:
     MEDIA_URL = '/media/'
-    MEDIA_ROOT = BASE_DIR / 'media'
+    MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
     STATIC_URL = '/static/'
-    STATIC_ROOT = BASE_DIR / 'staticfiles'
+    STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 # Email Configuration
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
