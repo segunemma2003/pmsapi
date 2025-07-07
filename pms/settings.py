@@ -7,6 +7,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 SECRET_KEY = config('SECRET_KEY','sdghtjykuyikjyhtgrfd')
 DEBUG = config('DEBUG', default=False, cast=bool)
+if os.path.exists('/app'):
+    # Docker environment
+    LOGS_DIR = Path('/app/logs')
+else:
+    # Local development or CI
+    LOGS_DIR = BASE_DIR / 'logs'
 
 DJANGO_APPS = [
     'django.contrib.admin',
@@ -290,7 +296,7 @@ USE_I18N = True
 USE_TZ = True
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-
+LOGS_DIR.mkdir(exist_ok=True)
 # Logging Configuration - Production Optimized
 LOGGING = {
     'version': 1,
@@ -314,22 +320,6 @@ LOGGING = {
         },
     },
     'handlers': {
-        'file': {
-            'level': 'INFO',
-            'class': 'logging.handlers.RotatingFileHandler',
-            'filename': config('LOG_FILE_PATH', default='django.log'),
-            'maxBytes': 1024*1024*50,  # 50 MB
-            'backupCount': 5,
-            'formatter': 'verbose',
-            'filters': ['require_debug_false'],
-        },
-        'debug_file': {
-            'level': 'DEBUG',
-            'class': 'logging.FileHandler',
-            'filename': '/app/logs/debug.log',
-            'formatter': 'verbose',
-            'filters': ['require_debug_true'],
-        },
         'console': {
             'level': 'INFO',
             'class': 'logging.StreamHandler',
@@ -343,22 +333,22 @@ LOGGING = {
     },
     'loggers': {
         'django': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console'],
             'level': 'INFO',
             'propagate': False,
         },
         'django.request': {
-            'handlers': ['mail_admins', 'file'],
+            'handlers': ['mail_admins', 'console'],
             'level': 'ERROR',
             'propagate': False,
         },
         'oifyk': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console'],
             'level': 'INFO',
             'propagate': False,
         },
         'celery': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console'],
             'level': 'INFO',
             'propagate': False,
         },
@@ -368,6 +358,36 @@ LOGGING = {
         'level': 'INFO',
     },
 }
+
+# Add file logging only in production (when not in CI and not DEBUG)
+if not DEBUG and not os.environ.get('CI'):
+    try:
+        LOGGING['handlers']['file'] = {
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': str(LOGS_DIR / 'django.log'),
+            'maxBytes': 1024*1024*50,  # 50 MB
+            'backupCount': 5,
+            'formatter': 'verbose',
+            'filters': ['require_debug_false'],
+        }
+        LOGGING['handlers']['debug_file'] = {
+            'level': 'DEBUG',
+            'class': 'logging.FileHandler',
+            'filename': str(LOGS_DIR / 'debug.log'),
+            'formatter': 'verbose',
+            'filters': ['require_debug_true'],
+        }
+        
+        # Add file handlers to loggers
+        for logger_name in ['django', 'django.request', 'oifyk', 'celery']:
+            if logger_name in LOGGING['loggers']:
+                LOGGING['loggers'][logger_name]['handlers'].append('file')
+                
+    except Exception as e:
+        # If file logging fails, continue with console logging
+        print(f"Warning: Could not configure file logging: {e}")
+        pass
 
 # Cache timeouts (in seconds)
 CACHE_TIMEOUTS = {
