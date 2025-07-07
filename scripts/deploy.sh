@@ -28,9 +28,21 @@ fi
 
 echo "✅ Using Docker Compose: $DC_CMD"
 
-# Stop existing services
-echo "🛑 Stopping existing services..."
-$DC_CMD --env-file .env.production -f docker-compose.production.yml down || true
+# Force cleanup of existing containers and networks
+echo "🧹 Cleaning up existing containers..."
+$DC_CMD --env-file .env.production -f docker-compose.production.yml down --volumes --remove-orphans || true
+
+# Remove any orphaned containers with our project names
+echo "🗑️ Removing orphaned containers..."
+docker container rm -f oifyk_nginx oifyk_web oifyk_db oifyk_redis oifyk_celery oifyk_celery_beat oifyk_certbot 2>/dev/null || true
+
+# Remove any orphaned networks
+echo "🌐 Cleaning up networks..."
+docker network rm oifyk_oifyk_network 2>/dev/null || true
+
+# Prune unused Docker resources
+echo "🧽 Pruning unused Docker resources..."
+docker system prune -f --volumes
 
 # Build and start services
 echo "🔨 Building and starting services..."
@@ -41,7 +53,7 @@ $DC_CMD --env-file .env.production -f docker-compose.production.yml up -d
 echo "⏳ Waiting for database..."
 timeout=60
 counter=0
-while ! $DC_CMD --env-file .env.production -f docker-compose.production.yml exec -T db pg_isready -U oifyk_user -d oifyk_production > /dev/null 2>&1; do
+while ! $DC_CMD --env-file .env.production -f docker-compose.production.yml exec -T db pg_isready -U $(grep DB_USER .env.production | cut -d'=' -f2) -d $(grep DB_NAME .env.production | cut -d'=' -f2) > /dev/null 2>&1; do
     if [ $counter -eq $timeout ]; then
         echo "❌ Database failed to start"
         $DC_CMD --env-file .env.production -f docker-compose.production.yml logs db
@@ -52,6 +64,10 @@ while ! $DC_CMD --env-file .env.production -f docker-compose.production.yml exec
 done
 
 echo "✅ Database is ready"
+
+# Wait a bit more for all services to stabilize
+echo "⏳ Allowing services to stabilize..."
+sleep 10
 
 # Run migrations and setup
 echo "📊 Running migrations..."
@@ -95,3 +111,15 @@ echo "🌐 Your API is available at:"
 echo "  HTTP: http://api.oifyk.com"
 echo "  Admin: http://api.oifyk.com/admin/"
 echo "  Health: http://api.oifyk.com/api/health/"
+
+# Ask about SSL setup
+echo ""
+read -p "🔐 Would you like to set up SSL certificates now? (y/n): " -n 1 -r
+echo
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo "📜 Setting up SSL..."
+    chmod +x scripts/setup-ssl.sh
+    ./scripts/setup-ssl.sh
+fi
+
+echo "✅ All done!"
