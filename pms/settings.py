@@ -326,7 +326,7 @@ LOGGING = {
         'debug_file': {
             'level': 'DEBUG',
             'class': 'logging.FileHandler',
-            'filename': 'debug.log',
+            'filename': '/app/logs/debug.log',
             'formatter': 'verbose',
             'filters': ['require_debug_true'],
         },
