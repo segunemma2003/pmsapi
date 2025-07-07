@@ -238,7 +238,7 @@ SIMPLE_JWT = {
 ALLOWED_HOSTS = ['*']
 
 # CORS Configuration
-CORS_ALLOW_ALL_ORIGINS = DEBUG
+
 cors_origins = config('CORS_ALLOWED_ORIGINS', default='')
 if cors_origins:
     CORS_ALLOWED_ORIGINS = [origin.strip() for origin in cors_origins.split(',') if origin.strip()]
