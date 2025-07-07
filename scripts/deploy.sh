@@ -43,36 +43,55 @@ echo "🔧 Ensuring script permissions..."
 chmod +x scripts/*.sh 2>/dev/null || true
 chmod +x scripts/setup-ssl.sh 2>/dev/null || true
 
-# Force cleanup of existing containers and networks
-echo "🧹 Cleaning up existing containers..."
-$DC_CMD -f docker-compose.production.yml down --volumes --remove-orphans || true
+# ⚠️ IMPORTANT: Stop containers but PRESERVE VOLUMES (database data)
+echo "🛑 Stopping containers (preserving database data)..."
+$DC_CMD -f docker-compose.production.yml down --remove-orphans || true
 
-# Remove any orphaned containers with our project names
+# Remove any orphaned containers with our project names (but keep volumes)
 echo "🗑️ Removing orphaned containers..."
 docker container rm -f oifyk_nginx oifyk_web oifyk_db oifyk_redis oifyk_celery oifyk_celery_beat oifyk_certbot 2>/dev/null || true
 
-# Remove any orphaned networks
+# Remove any orphaned networks (but keep volumes)
 echo "🌐 Cleaning up networks..."
 docker network rm oifyk_oifyk_network 2>/dev/null || true
-docker rm -f oifyk_redis oifyk_web oifyk_db oifyk_celery oifyk_celery_beat oifyk_nginx oifyk_certbot 2>/dev/null || true
 
-# Prune unused Docker resources
-echo "🧽 Pruning unused Docker resources..."
-docker system prune -f --volumes
+# ⚠️ IMPORTANT: Prune unused Docker resources BUT PRESERVE VOLUMES
+echo "🧽 Pruning unused Docker resources (preserving volumes)..."
+docker system prune -f
+
+# Optional: Create database backup before deployment
+echo "💾 Creating database backup (if database exists)..."
+if docker volume ls | grep -q "oifyk_postgres_data"; then
+    BACKUP_FILE="db_backups/backup_$(date +%Y%m%d_%H%M%S).sql"
+    mkdir -p db_backups
+    
+    # Try to backup existing database
+    $DC_CMD -f docker-compose.production.yml run --rm db pg_dump -h db -U $DB_USER -d $DB_NAME > "$BACKUP_FILE" 2>/dev/null || {
+        echo "⚠️ Could not create backup (database might not be running)"
+        rm -f "$BACKUP_FILE"
+    }
+    
+    if [ -f "$BACKUP_FILE" ]; then
+        echo "✅ Database backup created: $BACKUP_FILE"
+        
+        # Keep only last 5 backups
+        ls -t db_backups/*.sql 2>/dev/null | tail -n +6 | xargs rm -f 2>/dev/null || true
+    fi
+fi
 
 # Build and start services
 echo "🔨 Building and starting services..."
-$DC_CMD  -f docker-compose.production.yml build --no-cache
-$DC_CMD  -f docker-compose.production.yml up -d
+$DC_CMD -f docker-compose.production.yml build --no-cache
+$DC_CMD -f docker-compose.production.yml up -d
 
 # Wait for database
 echo "⏳ Waiting for database..."
 timeout=60
 counter=0
-while ! $DC_CMD  -f docker-compose.production.yml exec -T db pg_isready -U $(grep DB_USER .env.production | cut -d'=' -f2) -d $(grep DB_NAME .env.production | cut -d'=' -f2) > /dev/null 2>&1; do
+while ! $DC_CMD -f docker-compose.production.yml exec -T db pg_isready -U $(grep DB_USER .env.production | cut -d'=' -f2) -d $(grep DB_NAME .env.production | cut -d'=' -f2) > /dev/null 2>&1; do
     if [ $counter -eq $timeout ]; then
         echo "❌ Database failed to start"
-        $DC_CMD  -f docker-compose.production.yml logs db
+        $DC_CMD -f docker-compose.production.yml logs db
         exit 1
     fi
     sleep 2
@@ -87,10 +106,10 @@ sleep 10
 
 # Run migrations and setup
 echo "📊 Running migrations..."
-$DC_CMD  -f docker-compose.production.yml exec -T web python manage.py migrate --noinput
+$DC_CMD -f docker-compose.production.yml exec -T web python manage.py migrate --noinput
 
 echo "📁 Collecting static files..."
-$DC_CMD  -f docker-compose.production.yml exec -T web python manage.py collectstatic --noinput
+$DC_CMD -f docker-compose.production.yml exec -T web python manage.py collectstatic --noinput
 
 # Wait for web service
 echo "⏳ Waiting for web service..."
@@ -99,7 +118,7 @@ counter=0
 while ! curl -f http://localhost:8000/api/health/ > /dev/null 2>&1; do
     if [ $counter -eq $timeout ]; then
         echo "❌ Web service failed to start"
-        $DC_CMD  -f docker-compose.production.yml logs web
+        $DC_CMD -f docker-compose.production.yml logs web
         exit 1
     fi
     sleep 2
@@ -113,14 +132,18 @@ if curl -f http://localhost/api/health/ > /dev/null 2>&1; then
     echo "✅ HTTP connectivity working"
 else
     echo "⚠️ HTTP connectivity not working - checking nginx..."
-    $DC_CMD  -f docker-compose.production.yml logs nginx
+    $DC_CMD -f docker-compose.production.yml logs nginx
 fi
 
 echo "🎉 Deployment completed successfully!"
 
 # Show service status
 echo "📊 Service status:"
-$DC_CMD  -f docker-compose.production.yml ps
+$DC_CMD -f docker-compose.production.yml ps
+
+# Show volume status
+echo "📦 Volume status:"
+docker volume ls | grep -E "(postgres_data|redis_data)"
 
 echo ""
 echo "🌐 Your API is available at:"
@@ -147,3 +170,9 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
 fi
 
 echo "✅ All done!"
+echo ""
+echo "💡 Database persistence info:"
+echo "  - Database data is stored in Docker volume 'oifyk_postgres_data'"
+echo "  - Backups are stored in ./db_backups/"
+echo "  - To manually backup: docker compose -f docker-compose.production.yml exec db pg_dump -U $DB_USER $DB_NAME > backup.sql"
+echo "  - To restore: docker compose -f docker-compose.production.yml exec -T db psql -U $DB_USER $DB_NAME < backup.sql"
