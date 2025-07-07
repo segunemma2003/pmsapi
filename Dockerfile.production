@@ -32,6 +32,11 @@ RUN adduser --disabled-password --gecos '' appuser \
     && mkdir -p /app/logs /app/staticfiles /app/media \
     && chown -R appuser:appuser /app/logs /app/staticfiles /app/media
 
+RUN mkdir -p /app/logs && \
+    chown -R app:app /app/logs && \
+    chmod -R 755 /app/logs
+
+
 # Collect static files
 RUN python manage.py collectstatic --noinput
 

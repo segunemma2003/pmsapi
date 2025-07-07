@@ -7,6 +7,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 SECRET_KEY = config('SECRET_KEY','sdghtjykuyikjyhtgrfd')
 DEBUG = config('DEBUG', default=False, cast=bool)
+LOGS_DIR = os.path.join(BASE_DIR, 'logs')
+
 if os.path.exists('/app'):
     # Docker environment
     LOGS_DIR = Path('/app/logs')
@@ -296,7 +298,7 @@ USE_I18N = True
 USE_TZ = True
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-LOGS_DIR.mkdir(exist_ok=True)
+os.makedirs(LOGS_DIR, exist_ok=True)
 # Logging Configuration - Production Optimized
 LOGGING = {
     'version': 1,
