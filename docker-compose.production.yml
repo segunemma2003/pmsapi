@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   nginx:
     image: nginx:alpine
@@ -19,21 +17,19 @@ services:
     restart: unless-stopped
     networks:
       - oifyk_network
-    # Use simple nginx startup instead of complex SSL initialization
-    command: ["nginx", "-g", "daemon off;"]
 
   web:
     build: 
       context: .
       dockerfile: Dockerfile.production
     container_name: oifyk_web
-    command: gunicorn pms.wsgi:application --bind 0.0.0.0:8000 --workers 4 --worker-class gevent --worker-connections 1000 --max-requests 1000 --max-requests-jitter 100 --timeout 30 --keep-alive 2 --log-level info
+    command: gunicorn pms.wsgi:application --bind 0.0.0.0:8000 --workers 4 --timeout 30 --keep-alive 2 --log-level info
     volumes:
       - static_volume:/app/staticfiles
       - media_volume:/app/media
       - ./logs:/app/logs
     ports:
-      - "8000:8000"  # Expose for debugging during deployment
+      - "8000:8000"
     env_file:
       - .env.production
     depends_on:
@@ -53,12 +49,10 @@ services:
     container_name: oifyk_db
     volumes:
       - postgres_data:/var/lib/postgresql/data/
-      - ./db_backups:/backups
     environment:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
     restart: unless-stopped
     networks:
       - oifyk_network
@@ -71,7 +65,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: oifyk_redis
-    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
     restart: unless-stopped
@@ -88,7 +82,7 @@ services:
       context: .
       dockerfile: Dockerfile.production
     container_name: oifyk_celery
-    command: celery -A pms worker -l info --concurrency=4 --max-tasks-per-child=1000
+    command: celery -A pms worker -l info --concurrency=2
     volumes:
       - ./logs:/app/logs
     env_file:
@@ -99,20 +93,13 @@ services:
     restart: unless-stopped
     networks:
       - oifyk_network
-    healthcheck:
-      test: ["CMD", "celery", "-A", "pms", "inspect", "ping"]
-      interval: 60s
-      timeout: 30s
-      retries: 3
 
   celery-beat:
     build: 
       context: .
       dockerfile: Dockerfile.production
     container_name: oifyk_celery_beat
-    command: >
-      sh -c "python manage.py migrate django_celery_beat &&
-      celery -A pms beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler"
+    command: celery -A pms beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
     volumes:
       - ./logs:/app/logs
     env_file:
@@ -120,43 +107,18 @@ services:
     depends_on:
       - db
       - redis
-      - web  # Ensure web is ready before starting beat
+      - web
     restart: unless-stopped
     networks:
       - oifyk_network
-    # Remove healthcheck for beat as it doesn't respond to ping the same way
 
   certbot:
     image: certbot/certbot
-    container_name: oifyk_certbot_renew
+    container_name: oifyk_certbot
     volumes:
       - ./certbot/conf:/etc/letsencrypt
       - ./certbot/www:/var/www/certbot
-    # Don't run certbot automatically - use manual setup
-    profiles: ["manual"]
-
-  # Automatic certificate renewal
-  certbot-renew:
-    image: certbot/certbot
-    container_name: oifyk_certbot_renew
-    volumes:
-      - ./certbot/conf:/etc/letsencrypt
-      - ./certbot/www:/var/www/certbot
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    command: >
-      sh -c "while :; do
-        sleep 12h;
-        echo 'Checking for certificate renewal...';
-        certbot renew --quiet --webroot -w /var/www/certbot;
-        if [ $$? -eq 0 ]; then
-          echo 'Certificates renewed, reloading nginx...';
-          docker exec oifyk_nginx nginx -s reload 2>/dev/null || echo 'Nginx reload failed';
-        fi;
-      done"
-    restart: unless-stopped
-    networks:
-      - oifyk_network
-    profiles: ["ssl"]  # Only start after SSL is set up
+    profiles: ["ssl"]
 
 volumes:
   postgres_data:

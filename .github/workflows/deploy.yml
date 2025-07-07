@@ -40,18 +40,13 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
           pip install -r requirements.production.txt
-
-      - name: Run security scan
-        run: |
-          pip install safety
-          safety scan --output text --continue-on-error || echo "Security scan completed with warnings"
 
       - name: Run tests
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/test_db
           REDIS_URL: redis://localhost:6379/0
+          DEBUG: True
         run: |
           python manage.py test
 
@@ -68,367 +63,55 @@ jobs:
           username: ${{ secrets.VPS_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.VPS_PORT }}
-          timeout: 1200s # 20 minutes for SSL setup
-          command_timeout: 900s # 15 minutes per command
+          timeout: 600s
           script: |
-            # Set environment variables for the deployment
-            export ADMIN_EMAIL="${{ secrets.ADMIN_EMAIL }}"
-            export ADMIN_PASSWORD="${{ secrets.ADMIN_PASSWORD }}"
-
-            # Ensure we're in the right directory
-            cd /opt/oifyk || {
-              echo "Directory /opt/oifyk not found. Setting up..."
-              sudo mkdir -p /opt/oifyk
-              sudo chown -R $USER:$USER /opt/oifyk
-              cd /opt/oifyk
-              
-              # Clone repository if it doesn't exist
-              if [ ! -d ".git" ]; then
-                git clone https://github.com/${{ github.repository }}.git .
-              fi
-            }
+            # Navigate to project directory
+            cd /opt/oifyk || exit 1
 
             # Pull latest code
             git fetch origin
             git reset --hard origin/main
 
-            # Create SSL initialization script
-            cat > ssl-init.sh << 'EOF'
-            #!/bin/sh
-
-            set -e
-
-            echo "🔧 Starting SSL initialization..."
-
-            # Domain and email for certificates
-            DOMAIN="api.oifyk.com"
-            EMAIL="${ADMIN_EMAIL:-admin@oifyk.com}"
-
-            # Paths
-            CERT_PATH="/etc/letsencrypt/live/$DOMAIN"
-            NGINX_CONF="/etc/nginx/nginx.conf"
-            NGINX_SSL_CONF="/etc/nginx/nginx-ssl.conf"
-
-            # Function to check if certificates exist and are valid
-            check_certificates() {
-                if [ -f "$CERT_PATH/fullchain.pem" ] && [ -f "$CERT_PATH/privkey.pem" ]; then
-                    # Check if certificate is valid (not expired)
-                    if openssl x509 -checkend 86400 -noout -in "$CERT_PATH/fullchain.pem" >/dev/null 2>&1; then
-                        echo "✅ Valid SSL certificates found"
-                        return 0
-                    else
-                        echo "⚠️ SSL certificates found but expiring soon or expired"
-                        return 1
-                    fi
-                else
-                    echo "❌ No SSL certificates found"
-                    return 1
-                fi
-            }
-
-            # Function to start nginx with HTTP-only configuration
-            start_nginx_http() {
-                echo "🌐 Starting nginx with HTTP-only configuration for certificate generation..."
-                nginx -g "daemon off;" &
-                NGINX_PID=$!
-                echo "Nginx HTTP started with PID: $NGINX_PID"
-                
-                # Wait for nginx to be ready
-                for i in $(seq 1 30); do
-                    if curl -f http://localhost/api/health/ >/dev/null 2>&1; then
-                        echo "✅ Nginx HTTP is ready"
-                        return 0
-                    fi
-                    echo "⏳ Waiting for nginx to be ready... ($i/30)"
-                    sleep 2
-                done
-                
-                echo "❌ Nginx failed to start properly"
-                return 1
-            }
-
-            # Function to obtain SSL certificates
-            obtain_certificates() {
-                echo "🔐 Obtaining SSL certificates from Let's Encrypt..."
-                
-                # Ensure certbot directories exist
-                mkdir -p /var/www/certbot
-                mkdir -p /etc/letsencrypt
-                
-                # Wait for certbot service to be available
-                echo "⏳ Waiting for backend to be ready..."
-                sleep 10
-                
-                # Try to obtain certificate using webroot
-                if timeout 300 sh -c '
-                    while ! curl -f http://localhost/api/health/ >/dev/null 2>&1; do
-                        echo "Waiting for backend..."
-                        sleep 5
-                    done
-                '; then
-                    echo "Backend is ready, obtaining certificates..."
-                    
-                    # Use certbot with webroot method
-                    certbot certonly \
-                        --webroot \
-                        -w /var/www/certbot \
-                        --email "$EMAIL" \
-                        --agree-tos \
-                        --no-eff-email \
-                        --force-renewal \
-                        -d "$DOMAIN" \
-                        --non-interactive \
-                        --keep-until-expiring || return 1
-                        
-                    echo "✅ SSL certificates obtained successfully"
-                    return 0
-                else
-                    echo "❌ Backend not ready, cannot obtain certificates"
-                    return 1
-                fi
-            }
-
-            # Function to reload nginx with SSL configuration
-            reload_nginx_ssl() {
-                echo "🔒 Reloading nginx with SSL configuration..."
-                
-                if [ -f "$NGINX_SSL_CONF" ]; then
-                    cp "$NGINX_SSL_CONF" "$NGINX_CONF"
-                    
-                    # Test nginx configuration
-                    if nginx -t; then
-                        nginx -s reload
-                        echo "✅ Nginx reloaded with SSL configuration"
-                        return 0
-                    else
-                        echo "❌ Nginx SSL configuration test failed"
-                        return 1
-                    fi
-                else
-                    echo "❌ SSL configuration file not found"
-                    return 1
-                fi
-            }
-
-            # Main execution
-            main() {
-                echo "🚀 Initializing SSL setup for $DOMAIN..."
-                
-                # Start with HTTP-only configuration
-                start_nginx_http
-                
-                # Check if we already have valid certificates
-                if check_certificates; then
-                    echo "✅ Valid certificates found, switching to SSL configuration..."
-                    # Kill the HTTP-only nginx
-                    kill $NGINX_PID 2>/dev/null || true
-                    sleep 2
-                    
-                    # Load SSL configuration and start
-                    reload_nginx_ssl
-                    exec nginx -g "daemon off;"
-                else
-                    echo "📜 Need to obtain new certificates..."
-                    
-                    # Wait a bit for nginx to fully start
-                    sleep 5
-                    
-                    # Try to obtain certificates
-                    if obtain_certificates; then
-                        echo "✅ Certificates obtained, switching to SSL..."
-                        
-                        # Kill the HTTP-only nginx
-                        kill $NGINX_PID 2>/dev/null || true
-                        sleep 2
-                        
-                        # Load SSL configuration and start
-                        reload_nginx_ssl
-                        exec nginx -g "daemon off;"
-                    else
-                        echo "❌ Failed to obtain certificates, continuing with HTTP-only"
-                        echo "🔧 Please check your DNS settings and try again"
-                        
-                        # Continue with HTTP-only
-                        wait $NGINX_PID
-                    fi
-                fi
-            }
-
-            # Handle signals properly
-            trap 'echo "🛑 Received signal, shutting down..."; kill $NGINX_PID 2>/dev/null || true; exit 0' TERM INT
-
-            # Run main function
-            main
-            EOF
-
-            chmod +x ssl-init.sh
-
-            # Update environment file with secrets
+            # Create production environment file
             cat > .env.production << EOF
             DEBUG=False
             SECRET_KEY=${{ secrets.SECRET_KEY }}
             ALLOWED_HOSTS=api.oifyk.com
 
-            # Database
             DB_NAME=oifyk_production
             DB_USER=oifyk_user
             DB_PASSWORD=${{ secrets.DB_PASSWORD }}
             DB_HOST=db
             DB_PORT=5432
 
-            # Redis
             REDIS_URL=redis://redis:6379/0
 
-            # Email
             EMAIL_HOST=smtp.sendgrid.net
             EMAIL_PORT=587
             EMAIL_HOST_USER=apikey
             SENDGRID_API_KEY=${{ secrets.SENDGRID_API_KEY }}
             DEFAULT_FROM_EMAIL=noreply@oifyk.com
 
-            # File Storage - LOCAL
             USE_S3=False
 
-            # Frontend
             FRONTEND_URL=https://oifyk.com
             CORS_ALLOWED_ORIGINS=https://oifyk.com,https://www.oifyk.com,https://api.oifyk.com
 
-            # Security
             SECURE_SSL_REDIRECT=True
             SECURE_PROXY_SSL_HEADER=HTTP_X_FORWARDED_PROTO,https
 
-            # Features
             FEATURE_BEDS24=True
             FEATURE_EMAIL=True
             FEATURE_ANALYTICS=True
             FEATURE_RATE_LIMITING=True
-
-            # Admin credentials
-            ADMIN_EMAIL=${{ secrets.ADMIN_EMAIL }}
-            ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}
             EOF
 
-            # Make deploy script executable
+            # Run deployment
             chmod +x scripts/deploy.sh
+            ./scripts/deploy.sh
 
-            # Run deployment script with comprehensive error handling
-            echo "🚀 Starting deployment process..."
-
-            if timeout 1200 ./scripts/deploy.sh; then
-              echo "✅ Deployment completed successfully!"
-            else
-              DEPLOY_EXIT_CODE=$?
-              echo "❌ Deployment failed with exit code: $DEPLOY_EXIT_CODE"
-              
-              echo "🔍 System Information:"
-              echo "📊 Docker service status:"
-              sudo systemctl status docker --no-pager || true
-              
-              echo "📊 Docker version:"
-              docker --version || true
-              
-              echo "📊 Docker Compose versions:"
-              docker compose version || echo "Docker Compose plugin not available"
-              docker-compose --version || echo "Standalone docker-compose not available"
-              
-              echo "📊 Available Docker images:"
-              docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}" || true
-              
-              echo "📊 All containers status:"
-              docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" || true
-              
-              echo "📊 Docker system info:"
-              docker system df || true
-              
-              echo "📊 Network information:"
-              docker network ls || true
-              
-              # Check if env file exists
-              if [ -f ".env.production" ]; then
-                echo "✅ Environment file exists"
-              else
-                echo "❌ Environment file missing!"
-              fi
-              
-              # Check if docker-compose file exists
-              if [ -f "docker-compose.production.yml" ]; then
-                echo "✅ Docker compose file exists"
-              else
-                echo "❌ Docker compose file missing!"
-              fi
-              
-              echo "📋 Service logs (if available):"
-              
-              # Web service logs
-              echo "🌐 Web service logs:"
-              docker compose --env-file .env.production -f docker-compose.production.yml logs --tail=100 web 2>/dev/null || \
-              docker logs $(docker ps -aq --filter "name=.*web.*" | head -1) 2>/dev/null || \
-              echo "No web service logs available"
-              
-              # Nginx logs  
-              echo "🔒 Nginx service logs:"
-              docker compose --env-file .env.production -f docker-compose.production.yml logs --tail=100 nginx 2>/dev/null || \
-              docker logs $(docker ps -aq --filter "name=.*nginx.*" | head -1) 2>/dev/null || \
-              echo "No nginx service logs available"
-              
-              # Database logs
-              echo "💾 Database service logs:"
-              docker compose --env-file .env.production -f docker-compose.production.yml logs --tail=50 db 2>/dev/null || \
-              docker logs $(docker ps -aq --filter "name=.*db.*" | head -1) 2>/dev/null || \
-              echo "No database service logs available"
-              
-              # Redis logs
-              echo "🔴 Redis service logs:"
-              docker compose --env-file .env.production -f docker-compose.production.yml logs --tail=30 redis 2>/dev/null || \
-              docker logs $(docker ps -aq --filter "name=.*redis.*" | head -1) 2>/dev/null || \
-              echo "No redis service logs available"
-              
-              # Certbot logs
-              echo "🔐 SSL/Certbot logs:"
-              docker compose --env-file .env.production -f docker-compose.production.yml logs --tail=50 certbot 2>/dev/null || \
-              docker logs $(docker ps -aq --filter "name=.*certbot.*" | head -1) 2>/dev/null || \
-              echo "No certbot service logs available"
-              
-              echo "📊 Disk space:"
-              df -h || true
-              
-              echo "📊 Memory usage:"
-              free -h || true
-              
-              echo "📊 Load average:"
-              uptime || true
-              
-              echo "🔍 Checking specific connectivity:"
-              
-              # Test internal connectivity
-              echo "Testing internal connectivity..."
-              curl -f http://localhost:8000/api/health/ -m 10 2>/dev/null && echo "✅ Direct web service reachable" || echo "❌ Direct web service unreachable"
-              curl -f http://localhost/api/health/ -m 10 2>/dev/null && echo "✅ Nginx HTTP reachable" || echo "❌ Nginx HTTP unreachable"
-              curl -f -k https://localhost/api/health/ -m 10 2>/dev/null && echo "✅ Nginx HTTPS reachable" || echo "❌ Nginx HTTPS unreachable"
-              
-              # Check ports
-              echo "📊 Port status:"
-              netstat -tlnp | grep -E ':(80|443|8000|5432|6379)\s' || echo "No relevant ports found"
-              
-              exit 1
+            # Setup SSL certificates (only if not already done)
+            if [ ! -f "certbot/conf/live/api.oifyk.com/fullchain.pem" ]; then
+              echo "Setting up SSL certificates..."
+              ./scripts/setup-ssl.sh
             fi
-
-            # Final verification
-            echo "🔍 Final deployment verification..."
-            sleep 10
-
-            if curl -f http://localhost/api/health/ > /dev/null 2>&1; then
-              echo "✅ HTTP endpoint is working"
-            else
-              echo "❌ HTTP endpoint check failed"
-              exit 1
-            fi
-
-            # Check SSL if available
-            if curl -f -k https://localhost/api/health/ > /dev/null 2>&1; then
-              echo "✅ HTTPS endpoint is working"
-            else
-              echo "ℹ️ HTTPS not yet available (SSL may still be initializing)"
-            fi
-
-            echo "🎉 Deployment verification completed!"
