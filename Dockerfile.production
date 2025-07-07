@@ -29,13 +29,8 @@ COPY . .
 # Create non-root user
 RUN adduser --disabled-password --gecos '' appuser \
     && chown -R appuser:appuser /app \
-    && mkdir -p /app/logs /app/staticfiles /app/media \
-    && chown -R appuser:appuser /app/logs /app/staticfiles /app/media
-
-RUN mkdir -p /app/logs && \
-    chown -R app:app /app/logs && \
-    chmod -R 755 /app/logs
-
+    && mkdir -p /app/staticfiles /app/media \
+    && chown -R appuser:appuser /app/staticfiles /app/media
 
 # Collect static files
 RUN python manage.py collectstatic --noinput
@@ -47,4 +42,3 @@ EXPOSE 8000
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/api/health/ || exit 1
-
