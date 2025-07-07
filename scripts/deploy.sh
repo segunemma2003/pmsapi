@@ -28,6 +28,11 @@ fi
 
 echo "✅ Using Docker Compose: $DC_CMD"
 
+# Fix script permissions early
+echo "🔧 Ensuring script permissions..."
+chmod +x scripts/*.sh 2>/dev/null || true
+chmod +x scripts/setup-ssl.sh 2>/dev/null || true
+
 # Force cleanup of existing containers and networks
 echo "🧹 Cleaning up existing containers..."
 $DC_CMD --env-file .env.production -f docker-compose.production.yml down --volumes --remove-orphans || true
@@ -118,8 +123,16 @@ read -p "🔐 Would you like to set up SSL certificates now? (y/n): " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo "📜 Setting up SSL..."
+    # Ensure SSL script has execute permissions
     chmod +x scripts/setup-ssl.sh
-    ./scripts/setup-ssl.sh
+    # Verify permissions were set
+    if [ -x "scripts/setup-ssl.sh" ]; then
+        echo "✅ SSL script permissions verified"
+        ./scripts/setup-ssl.sh
+    else
+        echo "❌ Failed to set execute permissions on SSL script"
+        echo "💡 Run manually: chmod +x scripts/setup-ssl.sh && ./scripts/setup-ssl.sh"
+    fi
 fi
 
 echo "✅ All done!"

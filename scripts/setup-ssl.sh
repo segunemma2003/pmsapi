@@ -2,6 +2,9 @@
 
 set -e
 
+# Ensure this script has execute permissions
+chmod +x "$0" 2>/dev/null || true
+
 echo "🔐 Setting up SSL certificates..."
 
 # Determine Docker Compose command
