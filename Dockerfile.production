@@ -20,7 +20,7 @@ RUN apt-get update \
 WORKDIR /app
 
 # Install Python dependencies
-COPY requirements.txt requirements.production.txt ./
+COPY requirements.production.txt ./
 RUN pip install --no-cache-dir -r requirements.production.txt
 
 # Copy project
