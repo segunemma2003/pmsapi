@@ -60,6 +60,7 @@ MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.middleware.common.BrokenLinkEmailsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -130,7 +131,7 @@ DATABASE_ROUTERS = ['utils.db_router.DatabaseRouter']
 
 # Redis Configuration - Optimized for High Traffic
 REDIS_URL = config('REDIS_URL', default='redis://localhost:6379/0')
-
+CORS_ALLOW_ALL_ORIGINS=True
 CACHES = {
     'default': {
         'BACKEND': 'django_redis.cache.RedisCache',
