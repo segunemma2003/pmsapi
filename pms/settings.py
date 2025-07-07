@@ -402,11 +402,20 @@ CACHE_TIMEOUTS = {
 }
 
 # Feature Flags
+def str_to_bool(value):
+    """Convert string to boolean, handling various formats"""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower().strip() in ('true', '1', 'yes', 'on')
+    return bool(value)
+
+# Feature Flags - More robust boolean parsing
 FEATURES = {
-    'BEDS24_INTEGRATION': config('FEATURE_BEDS24', default=True, cast=bool),
-    'EMAIL_NOTIFICATIONS': config('FEATURE_EMAIL', default=True, cast=bool),
-    'ANALYTICS_TRACKING': config('FEATURE_ANALYTICS', default=True, cast=bool),
-    'RATE_LIMITING': config('FEATURE_RATE_LIMITING', default=True, cast=bool),
+    'BEDS24_INTEGRATION': str_to_bool(config('FEATURE_BEDS24', default='True')),
+    'EMAIL_NOTIFICATIONS': str_to_bool(config('FEATURE_EMAIL', default='True')),
+    'ANALYTICS_TRACKING': str_to_bool(config('FEATURE_ANALYTICS', default='True')),
+    'RATE_LIMITING': str_to_bool(config('FEATURE_RATE_LIMITING', default='True')),
 }
 
 BEDS24_API_URL = 'https://beds24.com/api/v2'
