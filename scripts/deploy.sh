@@ -45,7 +45,7 @@ chmod +x scripts/setup-ssl.sh 2>/dev/null || true
 
 # Force cleanup of existing containers and networks
 echo "🧹 Cleaning up existing containers..."
-$DC_CMD --env-file .env.production -f docker-compose.production.yml down --volumes --remove-orphans || true
+$DC_CMD -f docker-compose.production.yml down --volumes --remove-orphans || true
 
 # Remove any orphaned containers with our project names
 echo "🗑️ Removing orphaned containers..."
@@ -61,17 +61,17 @@ docker system prune -f --volumes
 
 # Build and start services
 echo "🔨 Building and starting services..."
-$DC_CMD --env-file .env.production -f docker-compose.production.yml build --no-cache
-$DC_CMD --env-file .env.production -f docker-compose.production.yml up -d
+$DC_CMD  -f docker-compose.production.yml build --no-cache
+$DC_CMD  -f docker-compose.production.yml up -d
 
 # Wait for database
 echo "⏳ Waiting for database..."
 timeout=60
 counter=0
-while ! $DC_CMD --env-file .env.production -f docker-compose.production.yml exec -T db pg_isready -U $(grep DB_USER .env.production | cut -d'=' -f2) -d $(grep DB_NAME .env.production | cut -d'=' -f2) > /dev/null 2>&1; do
+while ! $DC_CMD  -f docker-compose.production.yml exec -T db pg_isready -U $(grep DB_USER .env.production | cut -d'=' -f2) -d $(grep DB_NAME .env.production | cut -d'=' -f2) > /dev/null 2>&1; do
     if [ $counter -eq $timeout ]; then
         echo "❌ Database failed to start"
-        $DC_CMD --env-file .env.production -f docker-compose.production.yml logs db
+        $DC_CMD  -f docker-compose.production.yml logs db
         exit 1
     fi
     sleep 2
@@ -86,10 +86,10 @@ sleep 10
 
 # Run migrations and setup
 echo "📊 Running migrations..."
-$DC_CMD --env-file .env.production -f docker-compose.production.yml exec -T web python manage.py migrate --noinput
+$DC_CMD  -f docker-compose.production.yml exec -T web python manage.py migrate --noinput
 
 echo "📁 Collecting static files..."
-$DC_CMD --env-file .env.production -f docker-compose.production.yml exec -T web python manage.py collectstatic --noinput
+$DC_CMD  -f docker-compose.production.yml exec -T web python manage.py collectstatic --noinput
 
 # Wait for web service
 echo "⏳ Waiting for web service..."
@@ -98,7 +98,7 @@ counter=0
 while ! curl -f http://localhost:8000/api/health/ > /dev/null 2>&1; do
     if [ $counter -eq $timeout ]; then
         echo "❌ Web service failed to start"
-        $DC_CMD --env-file .env.production -f docker-compose.production.yml logs web
+        $DC_CMD  -f docker-compose.production.yml logs web
         exit 1
     fi
     sleep 2
@@ -112,14 +112,14 @@ if curl -f http://localhost/api/health/ > /dev/null 2>&1; then
     echo "✅ HTTP connectivity working"
 else
     echo "⚠️ HTTP connectivity not working - checking nginx..."
-    $DC_CMD --env-file .env.production -f docker-compose.production.yml logs nginx
+    $DC_CMD  -f docker-compose.production.yml logs nginx
 fi
 
 echo "🎉 Deployment completed successfully!"
 
 # Show service status
 echo "📊 Service status:"
-$DC_CMD --env-file .env.production -f docker-compose.production.yml ps
+$DC_CMD  -f docker-compose.production.yml ps
 
 echo ""
 echo "🌐 Your API is available at:"
