@@ -36,7 +36,7 @@ def send_invitation_email(self, invitation_id, inviter_name, is_existing_user=Fa
         
         # Step 3: Build context
         base_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
-        invitation_url = f"{base_url}/invitation/accept?token={invitation.invitation_token}"
+        invitation_url = f"{base_url}/invitation/respond?token={invitation.invitation_token}"
         
         context = {
             'invitee_name': invitation.invitee_name or 'there',
