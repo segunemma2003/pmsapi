@@ -320,6 +320,127 @@ class InvitationViewSet(viewsets.ModelViewSet):
                 'error': f'Failed to check task status: {str(e)}',
                 'task_id': task_id
             }, status=500)
+            
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    def resend_invitation(self, request, pk=None):
+        """Resend invitation email - REQUIRES AUTHENTICATION"""
+        try:
+            invitation = self.get_object()
+            
+            # Check permissions - only the inviter or admin can resend
+            if invitation.invited_by != request.user and request.user.user_type != 'admin':
+                return Response(
+                    {'error': 'Permission denied. Only the inviter or admin can resend invitations.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Check if invitation is still pending
+            if invitation.status != 'pending':
+                return Response(
+                    {'error': f'Cannot resend invitation. Status is "{invitation.status}".'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Check if invitation has expired
+            if not invitation.is_valid():
+                return Response(
+                    {'error': 'Cannot resend expired invitation. Please create a new invitation.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Check reminder limits
+            if not invitation.can_send_reminder():
+                if invitation.reminder_count >= 3:
+                    return Response(
+                        {'error': 'Maximum number of reminders (3) already sent for this invitation.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                else:
+                    return Response(
+                        {'error': 'Must wait 24 hours between reminder emails.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            
+            # Update reminder tracking
+            invitation.reminder_count += 1
+            invitation.last_reminder_sent = timezone.now()
+            invitation.save()
+            
+            # Check if user already exists to determine email type
+            existing_user = User.objects.filter(email=invitation.email).first()
+            
+            # Queue email task
+            print(f"🔄 API: Resending invitation email for {invitation.id} (reminder #{invitation.reminder_count})")
+            task = send_invitation_email.delay(
+                str(invitation.id),
+                invitation.invited_by.full_name or invitation.invited_by.email,
+                is_existing_user=bool(existing_user)
+            )
+            print(f"🔄 API: Resend task queued with ID: {task.id}")
+            
+            return Response({
+                'message': f'Invitation resent successfully (reminder #{invitation.reminder_count})',
+                'invitation_id': str(invitation.id),
+                'task_id': str(task.id),
+                'reminder_count': invitation.reminder_count,
+                'can_send_more': invitation.reminder_count < 3,
+                'next_reminder_available_at': (invitation.last_reminder_sent + timezone.timedelta(hours=24)).isoformat() if invitation.reminder_count < 3 else None
+            }, status=status.HTTP_200_OK)
+            
+        except Invitation.DoesNotExist:
+            return Response(
+                {'error': 'Invitation not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to resend invitation: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=False, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    def resend_by_email(self, request):
+        """Resend invitation by email address - REQUIRES AUTHENTICATION"""
+        email = request.data.get('email')
+        invitation_type = request.data.get('invitation_type', 'user')
+        
+        if not email:
+            return Response(
+                {'error': 'Email is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Find the most recent pending invitation for this email
+            invitation = Invitation.objects.filter(
+                email=email,
+                invitation_type=invitation_type,
+                status='pending',
+                invited_by=request.user
+            ).order_by('-created_at').first()
+            
+            if not invitation and request.user.user_type == 'admin':
+                # Admins can resend any invitation
+                invitation = Invitation.objects.filter(
+                    email=email,
+                    invitation_type=invitation_type,
+                    status='pending'
+                ).order_by('-created_at').first()
+            
+            if not invitation:
+                return Response(
+                    {'error': f'No pending {invitation_type} invitation found for {email}'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Use the detail resend logic
+            return self.resend_invitation(request, pk=invitation.pk)
+            
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to find invitation: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
     @action(detail=False, methods=['get'], permission_classes=[permissions.AllowAny])
     def celery_status(self, request):
