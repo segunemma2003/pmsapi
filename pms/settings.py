@@ -3,7 +3,7 @@ from pathlib import Path
 import psycopg2.extensions
 from decouple import config
 
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = config('SECRET_KEY','sdghtjykuyikjyhtgrfd')
 DEBUG = config('DEBUG', default=False, cast=bool)
@@ -17,6 +17,10 @@ if os.path.exists('/app'):
     STATIC_URL = '/static/'
     STATIC_ROOT = '/app/staticfiles'
 else:
+    MEDIA_URL = '/media/'
+    MEDIA_ROOT = '/media'
+    STATIC_URL = '/static/'
+    STATIC_ROOT = '/staticfiles'
     # Local development or CI
     LOGS_DIR = BASE_DIR / 'logs'
 
@@ -172,11 +176,11 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'UTC'
 CELERY_TASK_ALWAYS_EAGER = DEBUG
-CELERY_TASK_ROUTES = {
-    'invitations.tasks.*': {'queue': 'invitations'},
-    'properties.tasks.*': {'queue': 'properties'},
-    'beds24_integration.tasks.*': {'queue': 'beds24'},
-}
+# CELERY_TASK_ROUTES = {
+#     'invitations.tasks.*': {'queue': 'invitations'},
+#     'properties.tasks.*': {'queue': 'properties'},
+#     'beds24_integration.tasks.*': {'queue': 'beds24'},
+# }
 
 # REST Framework - Performance Optimized
 REST_FRAMEWORK = {
