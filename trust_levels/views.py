@@ -78,6 +78,52 @@ class TrustedNetworkInvitationViewSet(viewsets.ModelViewSet):
             'user_exists': bool(existing_user),
             'invitation': TrustedNetworkInvitationSerializer(invitation).data
         }, status=status.HTTP_201_CREATED)
+        
+    @action(detail=False, methods=['post'])
+    def validate_token(self, request):
+        """Validate network invitation token"""
+        token = request.data.get('token')
+        
+        if not token:
+            return Response(
+                {'error': 'Token is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            invitation = TrustedNetworkInvitation.objects.get(
+                invitation_token=token,
+                status='pending'
+            )
+            
+            # Check if expired
+            if invitation.expires_at <= timezone.now():
+                invitation.status = 'expired'
+                invitation.save()
+                return Response({
+                    'valid': False,
+                    'error': 'Invitation token has expired'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            return Response({
+                'valid': True,
+                'invitation': {
+                    'email': invitation.email,
+                    'invitee_name': invitation.invitee_name,
+                    'owner_name': invitation.owner.full_name,
+                    'trust_level': invitation.trust_level,
+                    'trust_level_name': invitation.trust_level_name,
+                    'discount_percentage': float(invitation.discount_percentage),
+                    'expires_at': invitation.expires_at.isoformat(),
+                    'personal_message': invitation.personal_message
+                }
+            })
+            
+        except TrustedNetworkInvitation.DoesNotExist:
+            return Response({
+                'valid': False,
+                'error': 'Invalid invitation token'
+            }, status=status.HTTP_400_BAD_REQUEST)
     
     @action(detail=False, methods=['post'])
     def respond_to_invitation(self, request):
