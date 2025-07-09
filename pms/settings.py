@@ -176,11 +176,12 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'UTC'
 CELERY_TASK_ALWAYS_EAGER = DEBUG
-# CELERY_TASK_ROUTES = {
-#     'invitations.tasks.*': {'queue': 'invitations'},
-#     'properties.tasks.*': {'queue': 'properties'},
-#     'beds24_integration.tasks.*': {'queue': 'beds24'},
-# }
+CELERY_TASK_ROUTES = {
+    'invitations.tasks.*': {'queue': 'invitations'},
+    'properties.tasks.*': {'queue': 'properties'},
+    'beds24_integration.tasks.*': {'queue': 'beds24'},
+     'trust_levels.tasks.*': {'queue': 'trust_levels'},
+}
 
 # REST Framework - Performance Optimized
 REST_FRAMEWORK = {
