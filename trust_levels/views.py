@@ -106,131 +106,211 @@ class TrustedNetworkInvitationViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        try:
-            invitation = TrustedNetworkInvitation.objects.get(
-                invitation_token=token,
-                status='pending'
-            )
-            
-            # Check if expired
-            if invitation.expires_at <= timezone.now():
-                invitation.status = 'expired'
-                invitation.save()
-                return Response({
-                    'valid': False,
-                    'error': 'Invitation token has expired'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            return Response({
-                'valid': True,
-                'invitation': {
-                    'email': invitation.email,
-                    'invitee_name': invitation.invitee_name,
-                    'owner_name': invitation.owner.full_name,
-                    'trust_level': invitation.trust_level,
-                    # 'trust_level_name': invitation.trust_level_name,
-                    'discount_percentage': float(invitation.discount_percentage),
-                    'expires_at': invitation.expires_at.isoformat(),
-                    'personal_message': invitation.personal_message
-                }
-            })
-            
-        except TrustedNetworkInvitation.DoesNotExist:
+        invitation = TrustedNetworkInvitation.objects.get_valid_invitation(token)
+        if not invitation:
             return Response({
                 'valid': False,
-                'error': 'Invalid invitation token'
+                'error': 'Invalid or expired invitation token'
             }, status=status.HTTP_400_BAD_REQUEST)
+        
+        return Response({
+            'valid': True,
+            'invitation': {
+                'email': invitation.email,
+                'invitee_name': invitation.invitee_name,
+                'owner_name': invitation.owner.full_name,
+                'trust_level': invitation.trust_level,
+                'discount_percentage': float(invitation.discount_percentage),
+                'expires_at': invitation.expires_at.isoformat(),
+                'personal_message': invitation.personal_message
+            }
+        })
     
     @action(detail=False, methods=['post'], permission_classes=[permissions.AllowAny])
-    def respond_to_invitation(self, request):
-        """Respond to trusted network invitation"""
+    def accept_invitation(self, request):
+        """Accept trusted network invitation - matches invitation flow"""
         token = request.data.get('token')
-        action = request.data.get('action')  # 'accept' or 'decline'
         
-        if not token or action not in ['accept', 'decline']:
+        if not token:
             return Response(
-                {'error': 'Valid token and action required'}, 
+                {'error': 'Token is required'}, 
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        try:
-            invitation = TrustedNetworkInvitation.objects.select_related('owner').get(
-                invitation_token=token,
-                status='pending'
+        invitation = TrustedNetworkInvitation.objects.get_valid_invitation(token)
+        if not invitation:
+            return Response(
+                {'error': 'Invalid or expired invitation token'},
+                status=status.HTTP_400_BAD_REQUEST
             )
-            
-            # Check if invitation is expired
-            if invitation.expires_at <= timezone.now():
-                invitation.status = 'expired'
-                invitation.save()
+        
+        # Check if user already exists
+        existing_user = User.objects.filter(email=invitation.email).first()
+        
+        if existing_user:
+            # Existing user accepting invitation
+            if not request.user.is_authenticated:
                 return Response(
-                    {'error': 'Invitation has expired'},
+                    {'error': 'Please login to accept this invitation'},
+                    status=status.HTTP_401_UNAUTHORIZED
+                )
+            
+            if request.user.email != invitation.email:
+                return Response(
+                    {'error': 'Invitation email does not match your account'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            if action == 'decline':
-                invitation.status = 'declined'
+            with transaction.atomic():
+                # Add to trusted network
+                network, created = OwnerTrustedNetwork.objects.get_or_create(
+                    owner=invitation.owner,
+                    trusted_user=request.user,
+                    defaults={
+                        'trust_level': invitation.trust_level,
+                        'discount_percentage': invitation.discount_percentage,
+                        'invitation_id': invitation.id,
+                        'status': 'active'
+                    }
+                )
+                
+                if not created:
+                    # Update existing network
+                    network.trust_level = invitation.trust_level
+                    network.discount_percentage = invitation.discount_percentage
+                    network.status = 'active'
+                    network.save()
+                
+                # Mark invitation as accepted
+                invitation.status = 'accepted'
+                invitation.accepted_at = timezone.now()
                 invitation.save()
-                
-                return Response({
-                    'success': True,
-                    'action': 'declined',
-                    'message': 'Network invitation declined'
-                })
             
-            elif action == 'accept':
-                # Check if user exists and is authenticated
-                if not request.user.is_authenticated:
-                    return Response(
-                        {'error': 'Authentication required to accept invitation'},
-                        status=status.HTTP_401_UNAUTHORIZED
-                    )
-                
-                # Verify email matches
-                if request.user.email != invitation.email:
-                    return Response(
-                        {'error': 'Invitation email does not match your account'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-                
+            return Response({
+                'message': f'Successfully joined {invitation.owner.full_name}\'s trusted network',
+                'network_details': {
+                    'owner_name': invitation.owner.full_name,
+                    'trust_level': invitation.trust_level,
+                    'discount_percentage': float(invitation.discount_percentage)
+                },
+                'requires_login': False
+            })
+        
+        else:
+            # New user - need registration data
+            user_data = request.data.get('user_data', {})
+            
+            if not user_data:
+                return Response(
+                    {'error': 'User registration data required for new users'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            required_fields = ['password', 'full_name']
+            missing_fields = [field for field in required_fields if not user_data.get(field)]
+            
+            if missing_fields:
+                return Response(
+                    {'error': f'Missing required fields: {", ".join(missing_fields)}'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            try:
                 with transaction.atomic():
-                    # Add to network
-                    network, created = OwnerTrustedNetwork.objects.get_or_create(
-                        owner=invitation.owner,
-                        trusted_user=request.user,
-                        defaults={
-                            'trust_level': invitation.trust_level,
-                            'discount_percentage': invitation.discount_percentage,
-                            'invitation_id': invitation.id,
-                            'status': 'active'
-                        }
+                    # Create user (default as 'user' type)
+                    user = User.objects.create_user(
+                        email=invitation.email,
+                        username=invitation.email,
+                        full_name=user_data['full_name'],
+                        phone=user_data.get('phone', ''),
+                        user_type='user',  # Trust level invitations create regular users
+                        status='active',
+                        email_verified=True,
+                        password=user_data['password']
                     )
                     
-                    if not created:
-                        # Update existing network
-                        network.trust_level = invitation.trust_level
-                        network.discount_percentage = invitation.discount_percentage
-                        network.status = 'active'
-                        network.save()
+                    # Add to trusted network
+                    network = OwnerTrustedNetwork.objects.create(
+                        owner=invitation.owner,
+                        trusted_user=user,
+                        trust_level=invitation.trust_level,
+                        discount_percentage=invitation.discount_percentage,
+                        invitation_id=invitation.id,
+                        status='active'
+                    )
                     
+                    # Update invitation
                     invitation.status = 'accepted'
                     invitation.accepted_at = timezone.now()
                     invitation.save()
-                
-                return Response({
-                    'success': True,
-                    'action': 'accepted',
-                    'message': f'Successfully joined {invitation.owner.full_name}\'s trusted network',
-                    'network_details': {
-                        'owner_name': invitation.owner.full_name,
-                        'trust_level': invitation.trust_level,
-                        'discount_percentage': float(invitation.discount_percentage)
-                    }
-                })
                     
-        except TrustedNetworkInvitation.DoesNotExist:
+                    # Clear related caches
+                    cache.delete(f'network_invitation_token_{token}')
+                    
+                    return Response({
+                        'message': 'Account created and added to trusted network successfully',
+                        'user': {
+                            'id': str(user.id),
+                            'email': user.email,
+                            'full_name': user.full_name,
+                            'user_type': user.user_type
+                        },
+                        'network_details': {
+                            'owner_name': invitation.owner.full_name,
+                            'trust_level': invitation.trust_level,
+                            'discount_percentage': float(invitation.discount_percentage)
+                        },
+                        'requires_login': True
+                    }, status=status.HTTP_201_CREATED)
+                    
+            except Exception as e:
+                return Response(
+                    {'error': f'Failed to create account: {str(e)}'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+    
+    @action(detail=False, methods=['post'], permission_classes=[permissions.AllowAny])
+    def decline_invitation(self, request):
+        """Decline trusted network invitation"""
+        token = request.data.get('token')
+        
+        if not token:
             return Response(
-                {'error': 'Invalid or expired invitation'}, 
+                {'error': 'Token is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        invitation = TrustedNetworkInvitation.objects.get_valid_invitation(token)
+        if not invitation:
+            return Response(
+                {'error': 'Invalid or expired invitation token'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Mark invitation as declined
+        invitation.status = 'declined'
+        invitation.save()
+        
+        # Clear cache
+        cache.delete(f'network_invitation_token_{token}')
+        
+        return Response({
+            'message': 'Network invitation declined successfully'
+        })
+    
+    # Keep the old method for backward compatibility
+    @action(detail=False, methods=['post'], permission_classes=[permissions.AllowAny])
+    def respond_to_invitation(self, request):
+        """Legacy method - redirect to new methods"""
+        action = request.data.get('action')
+        
+        if action == 'accept':
+            return self.accept_invitation(request)
+        elif action == 'decline':
+            return self.decline_invitation(request)
+        else:
+            return Response(
+                {'error': 'Valid action required (accept/decline)'}, 
                 status=status.HTTP_400_BAD_REQUEST
             )
             
