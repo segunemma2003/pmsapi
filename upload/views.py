@@ -30,49 +30,61 @@ def upload_file(request):
             status=status.HTTP_400_BAD_REQUEST
         )
     
-    # Validate file type
-    allowed_extensions = ['.jpg', '.jpeg', '.png', 'webp']
-    file_extension = os.path.splitext(file.name)[1].lower()
-    
-    if file_extension not in allowed_extensions:
-        return Response(
-            {'error': f'File type {file_extension} not allowed'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-    
     try:
-        # Generate unique filename
-        unique_filename = f"{uuid.uuid4()}{file_extension}"
+        # Try to open the file as an image to validate it's actually an image
+        file.seek(0)  # Reset file pointer
+        image = Image.open(file)
+        
+        # Get the original format
+        original_format = image.format
+        
+        # Verify the image (this will raise an exception if it's not a valid image)
+        image.verify()
+        
+        # Reopen the image since verify() closes it
+        file.seek(0)
+        image = Image.open(file)
+        
+        # Convert RGBA to RGB if needed (for formats that don't support transparency)
+        if image.mode in ('RGBA', 'LA'):
+            # Create a white background
+            background = Image.new('RGB', image.size, (255, 255, 255))
+            if image.mode == 'RGBA':
+                background.paste(image, mask=image.split()[-1])  # Use alpha channel as mask
+            else:
+                background.paste(image, mask=image.split()[-1])  # Use alpha channel as mask
+            image = background
+        elif image.mode not in ('RGB', 'L'):
+            # Convert other modes to RGB
+            image = image.convert('RGB')
+        
+        # Generate unique filename - always save as JPEG for consistency
+        unique_filename = f"{uuid.uuid4()}.jpg"
         file_path = f"{folder}/{unique_filename}"
         
-        # For images, resize if too large
-        if file_extension in ['.jpg', '.jpeg', '.png', 'webp']:
-            # Open image and resize if needed
-            image = Image.open(file)
+        # Max dimensions
+        max_width, max_height = 1920, 1080
+        
+        # Resize if needed
+        if image.width > max_width or image.height > max_height:
+            # Calculate new dimensions maintaining aspect ratio
+            ratio = min(max_width / image.width, max_height / image.height)
+            new_width = int(image.width * ratio)
+            new_height = int(image.height * ratio)
             
-            # Max dimensions
-            max_width, max_height = 1920, 1080
-            
-            if image.width > max_width or image.height > max_height:
-                # Calculate new dimensions maintaining aspect ratio
-                ratio = min(max_width / image.width, max_height / image.height)
-                new_width = int(image.width * ratio)
-                new_height = int(image.height * ratio)
-                
-                # Resize image
-                image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-                
-                # Save resized image to bytes
-                img_byte_arr = io.BytesIO()
-                format = 'JPEG' if file_extension in ['.jpg', '.jpeg'] else 'PNG'
-                image.save(img_byte_arr, format=format, quality=85, optimize=True)
-                img_byte_arr.seek(0)
-                
-                # Create new file object
-                file = ContentFile(img_byte_arr.read(), name=unique_filename)
+            # Resize image
+            image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        
+        # Save image to bytes as JPEG
+        img_byte_arr = io.BytesIO()
+        image.save(img_byte_arr, format='JPEG', quality=85, optimize=True)
+        img_byte_arr.seek(0)
+        
+        # Create new file object
+        processed_file = ContentFile(img_byte_arr.read(), name=unique_filename)
         
         # Save file
-        saved_path = default_storage.save(file_path, file)
+        saved_path = default_storage.save(file_path, processed_file)
         
         # Get file URL
         if hasattr(settings, 'AWS_STORAGE_BUCKET_NAME'):
@@ -87,15 +99,23 @@ def upload_file(request):
             'file_url': file_url,
             'file_path': saved_path,
             'original_name': file.name,
-            'size': file.size,
-            'content_type': file.content_type
+            'original_format': original_format,
+            'size': processed_file.size,
+            'content_type': 'image/jpeg'  # Since we always convert to JPEG
         })
         
     except Exception as e:
-        return Response(
-            {'error': f'Upload failed: {str(e)}'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        # If PIL can't open it, it's not a valid image
+        if "cannot identify image file" in str(e).lower():
+            return Response(
+                {'error': 'File is not a valid image'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        else:
+            return Response(
+                {'error': f'Upload failed: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
