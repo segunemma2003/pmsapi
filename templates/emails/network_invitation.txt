@@ -1,0 +1,43 @@
+🏠 TRUSTED NETWORK INVITATION - OnlyIfYouKnow
+
+Hi {{ invitee_name }},
+
+Great news! {{ owner_name }} has personally invited you to join their trusted network on OnlyIfYouKnow.
+
+TRUST LEVEL: {{ trust_level_name }} ({{ discount_percentage }}% discount)
+
+{% if personal_message %}
+PERSONAL MESSAGE FROM {{ owner_name|upper }}:
+"{{ personal_message }}"
+{% endif %}
+
+YOUR TRUST NETWORK BENEFITS:
+• 🏠 Exclusive Access: Book {{ owner_name }}'s properties with special privileges
+• ⚡ Priority Booking: Get first access to availability
+• 🛡️ Trust-Based: Part of a curated, invitation-only network
+
+{% if user_exists %}
+NEXT STEPS:
+1. Click the link below while logged into your account
+2. Accept the invitation to join the network
+3. Start using the platform with your new access
+{% else %}
+NEXT STEPS:
+1. Click the link below to create your account
+2. Fill in your details to create your secure account
+3. Complete your registration and start using the platform
+{% endif %}
+
+✨ ACCEPT INVITATION: {{ invitation_url }}
+
+⏰ IMPORTANT: This invitation expires on {{ expires_at|date:"F j, Y" }}. Don't miss out!
+
+If you have any questions about the network or booking process, feel free to contact {{ owner_name }} directly or our support team.
+
+Best regards,
+The OnlyIfYouKnow Team
+
+---
+This invitation was sent to {{ email }}
+If you didn't expect this invitation, you can safely ignore this email.
+© 2025 OnlyIfYouKnow. All rights reserved.
