@@ -16,15 +16,31 @@ User = get_user_model()
 
 class TrustedNetworkInvitationViewSet(viewsets.ModelViewSet):
     serializer_class = TrustedNetworkInvitationSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
     
     def get_queryset(self):
         user = self.request.user
-        if user.user_type == 'owner':
-            return TrustedNetworkInvitation.objects.filter(
-                owner=user
-            ).order_by('-created_at')
+        if user.is_authenticated:
+            if user.user_type == 'owner':
+                return TrustedNetworkInvitation.objects.filter(
+                    owner=user
+                ).order_by('-created_at')
         return TrustedNetworkInvitation.objects.none()
+        
+    
+    def get_permissions(self):
+        """Override permissions per action"""
+        if self.action == 'create':
+            # Only create requires authentication
+            permission_classes = [permissions.IsAuthenticated]
+        elif self.action in ['list', 'retrieve', 'update', 'partial_update', 'destroy']:
+            # CRUD operations require authentication
+            permission_classes = [permissions.IsAuthenticated]
+        else:
+            # accept_invitation, decline_invitation, validate_token allow any
+            permission_classes = [permissions.AllowAny]
+        
+        return [permission() for permission in permission_classes]
     
     def get_serializer_class(self):
         if self.action == 'create':
@@ -79,7 +95,7 @@ class TrustedNetworkInvitationViewSet(viewsets.ModelViewSet):
             'invitation': TrustedNetworkInvitationSerializer(invitation).data
         }, status=status.HTTP_201_CREATED)
         
-    @action(detail=False, methods=['post'])
+    @action(detail=False, methods=['post'], permission_classes=[permissions.AllowAny])
     def validate_token(self, request):
         """Validate network invitation token"""
         token = request.data.get('token')
@@ -125,7 +141,7 @@ class TrustedNetworkInvitationViewSet(viewsets.ModelViewSet):
                 'error': 'Invalid invitation token'
             }, status=status.HTTP_400_BAD_REQUEST)
     
-    @action(detail=False, methods=['post'])
+    @action(detail=False, methods=['post'], permission_classes=[permissions.AllowAny])
     def respond_to_invitation(self, request):
         """Respond to trusted network invitation"""
         token = request.data.get('token')
