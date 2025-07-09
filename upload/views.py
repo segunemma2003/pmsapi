@@ -22,7 +22,7 @@ def upload_file(request):
     
     file = request.FILES['file']
     folder = request.data.get('folder', 'general')
-    
+     
     # Validate file size (max 10MB)
     if file.size > 10 * 1024 * 1024:
         return Response(

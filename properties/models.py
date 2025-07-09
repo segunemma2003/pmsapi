@@ -4,6 +4,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from decimal import Decimal
 import uuid
 
 User = get_user_model()
@@ -95,8 +96,11 @@ class Property(models.Model):
             cache.set(cache_key, discount, timeout=300)  # 5 minutes
         
         if discount > 0:
-            discounted_price = self.price_per_night * (1 - (discount / 100))
-            return round(discounted_price, 2)
+            # Convert discount to Decimal to avoid type mismatch
+            discount_decimal = Decimal(str(discount))
+            discount_multiplier = Decimal('1') - (discount_decimal / Decimal('100'))
+            discounted_price = self.price_per_night * discount_multiplier
+            return discounted_price.quantize(Decimal('0.01'))  # Round to 2 decimal places
         
         return self.price_per_night
 
