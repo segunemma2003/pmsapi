@@ -128,7 +128,7 @@ class TrustedNetworkInvitationViewSet(viewsets.ModelViewSet):
                     'invitee_name': invitation.invitee_name,
                     'owner_name': invitation.owner.full_name,
                     'trust_level': invitation.trust_level,
-                    'trust_level_name': invitation.trust_level_name,
+                    # 'trust_level_name': invitation.trust_level_name,
                     'discount_percentage': float(invitation.discount_percentage),
                     'expires_at': invitation.expires_at.isoformat(),
                     'personal_message': invitation.personal_message
