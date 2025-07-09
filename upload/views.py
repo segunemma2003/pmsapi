@@ -31,7 +31,7 @@ def upload_file(request):
         )
     
     # Validate file type
-    allowed_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.pdf', '.doc', '.docx']
+    allowed_extensions = ['.jpg', '.jpeg', '.png', 'webp']
     file_extension = os.path.splitext(file.name)[1].lower()
     
     if file_extension not in allowed_extensions:
@@ -46,7 +46,7 @@ def upload_file(request):
         file_path = f"{folder}/{unique_filename}"
         
         # For images, resize if too large
-        if file_extension in ['.jpg', '.jpeg', '.png']:
+        if file_extension in ['.jpg', '.jpeg', '.png', 'webp']:
             # Open image and resize if needed
             image = Image.open(file)
             
