@@ -83,7 +83,7 @@ services:
       context: .
       dockerfile: Dockerfile.production
     container_name: oifyk_celery
-    command: celery -A pms worker -l info --concurrency=2
+    command: celery -A pms worker -l info  -Q celery,trust_levels --concurrency=2
     volumes:
       - ./logs:/app/logs
     env_file:
