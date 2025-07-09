@@ -27,7 +27,7 @@ def send_trusted_network_invitation_email(self, invitation_id, user_exists=False
         
         # Step 3: Build context
         base_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
-        invitation_url = f"{base_url}/network-invitation/respond?token={invitation.invitation_token}"
+        invitation_url = f"{base_url}/network-invitation/respond/token={invitation.invitation_token}"
         
         # Get trust level name
         trust_level_name = f"Level {invitation.trust_level}"
