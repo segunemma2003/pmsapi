@@ -1,0 +1,22 @@
+❌ BOOKING REQUEST UPDATE - {{ property_title }}
+
+Hi {{ guest_name }},
+
+We wanted to update you on your booking request for {{ property_title }}. Unfortunately, {{ owner_name }} was not able to accommodate your request for {{ check_in|date:"F j, Y" }} - {{ check_out|date:"F j, Y" }}.
+
+{% if rejection_reason %}REASON PROVIDED:
+"{{ rejection_reason }}"{% endif %}
+
+🔍 DON'T WORRY - WE HAVE OTHER OPTIONS!
+There are many other amazing properties in our trusted network. Let's find you the perfect place for your stay.
+
+🔍 FIND OTHER PROPERTIES: {{ search_url }}
+📅 TRY DIFFERENT DATES: {{ property_url }}
+
+If you have any questions, feel free to reach out to our support team. We're here to help you find the perfect accommodation!
+
+Best regards,
+The OnlyIfYouKnow Team
+
+---
+© 2025 OnlyIfYouKnow. All rights reserved.

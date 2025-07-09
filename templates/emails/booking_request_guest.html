@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Booking Request Submitted</title>
+  </head>
+  <body
+    style="
+      font-family: Arial, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      max-width: 600px;
+      margin: 0 auto;
+      background-color: #f8f9fa;
+    "
+  >
+    <div
+      style="
+        background-color: white;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      "
+    >
+      <div
+        style="
+          background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+          color: white;
+          padding: 40px 30px;
+          text-align: center;
+        "
+      >
+        <h1 style="margin: 0; font-size: 28px; font-weight: 700">
+          📋 Booking Request Submitted
+        </h1>
+        <p style="margin: 8px 0 0 0; font-size: 16px; opacity: 0.9">
+          {{ property_title }}
+        </p>
+      </div>
+
+      <div style="padding: 40px 30px">
+        <h2>Hi {{ guest_name }},</h2>
+
+        <p>
+          Thank you for your booking request! We've successfully submitted your
+          request for <strong>{{ property_title }}</strong> and the property
+          owner <strong>{{ owner_name }}</strong> will review it shortly.
+        </p>
+
+        <div
+          style="
+            background-color: #f0f7ff;
+            padding: 25px;
+            border-radius: 8px;
+            margin: 25px 0;
+            border: 1px solid #e3f2fd;
+          "
+        >
+          <h3 style="margin: 0 0 15px 0; color: #1976d2">
+            📋 Your Request Details:
+          </h3>
+          <table style="width: 100%; border-collapse: collapse">
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Property:</td>
+              <td>{{ property_title }}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Check-in:</td>
+              <td>{{ check_in|date:"F j, Y" }}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Check-out:</td>
+              <td>{{ check_out|date:"F j, Y" }}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Nights:</td>
+              <td>{{ nights }}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Guests:</td>
+              <td>{{ guests_count }}</td>
+            </tr>
+
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Total Amount:</td>
+              <td><strong>${{ total_amount }}</strong></td>
+            </tr>
+          </table>
+        </div>
+
+        {% if special_requests %}
+        <div
+          style="
+            background-color: #fff3e0;
+            border-left: 4px solid #ff9800;
+            padding: 20px;
+            margin: 25px 0;
+            border-radius: 4px;
+          "
+        >
+          <strong>📝 Your Special Requests:</strong><br />
+          "{{ special_requests }}"
+        </div>
+        {% endif %}
+
+        <div
+          style="
+            background-color: #f7fafc;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 25px 0;
+          "
+        >
+          <h3 style="margin: 0 0 10px 0">⏳ What Happens Next?</h3>
+          <ol style="margin: 0; padding-left: 20px">
+            <li>The property owner will review your request</li>
+            <li>You'll receive an email notification with their decision</li>
+            <li>If approved, your booking will be confirmed automatically</li>
+            <li>
+              You'll receive booking confirmation details and check-in
+              instructions
+            </li>
+          </ol>
+        </div>
+
+        <div style="text-align: center; margin: 40px 0">
+          <a
+            href="{{ booking_url }}"
+            style="
+              display: inline-block;
+              background: #4f46e5;
+              color: white;
+              padding: 16px 32px;
+              text-decoration: none;
+              border-radius: 8px;
+              font-weight: 600;
+              font-size: 16px;
+            "
+          >
+            📋 View Request Status
+          </a>
+        </div>
+
+        <p>We'll keep you updated on the status of your request!</p>
+
+        <p>Best regards,<br /><strong>The OnlyIfYouKnow Team</strong></p>
+      </div>
+
+      <div
+        style="
+          background-color: #f7fafc;
+          padding: 30px;
+          text-align: center;
+          font-size: 14px;
+          color: #718096;
+          border-top: 1px solid #e2e8f0;
+        "
+      >
+        <p>© 2025 OnlyIfYouKnow. All rights reserved.</p>
+      </div>
+    </div>
+  </body>
+</html>

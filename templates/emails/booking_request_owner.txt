@@ -1,0 +1,28 @@
+📅 NEW BOOKING REQUEST - {{ property_title }}
+
+Hi {{ owner_name }},
+
+You have a new booking request from {{ guest_name }} for {{ property_title }}.
+
+BOOKING DETAILS:
+- Guest: {{ guest_name }} ({{ guest_email }})
+- Check-in: {{ check_in|date:"F j, Y" }}
+- Check-out: {{ check_out|date:"F j, Y" }}
+- Nights: {{ nights }}
+- Guests: {{ guests_count }}
+- Total Amount: ${{ total_amount }}
+{% if discount_applied > 0 %}- Trust Discount: {{ discount_applied }}%{% endif %}
+
+{% if special_requests %}SPECIAL REQUESTS:
+"{{ special_requests }}"{% endif %}
+
+ACTIONS:
+✅ Approve: {{ approve_url }}
+❌ Decline: {{ reject_url }}
+📋 View Details: {{ booking_url }}
+
+Best regards,
+The OnlyIfYouKnow Team
+
+---
+© 2025 OnlyIfYouKnow. All rights reserved.

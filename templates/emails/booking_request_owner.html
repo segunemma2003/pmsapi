@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>New Booking Request</title>
+  </head>
+  <body
+    style="
+      font-family: Arial, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      max-width: 600px;
+      margin: 0 auto;
+      background-color: #f8f9fa;
+    "
+  >
+    <div
+      style="
+        background-color: white;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      "
+    >
+      <div
+        style="
+          background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+          color: white;
+          padding: 40px 30px;
+          text-align: center;
+        "
+      >
+        <h1 style="margin: 0; font-size: 28px; font-weight: 700">
+          📅 New Booking Request
+        </h1>
+        <p style="margin: 8px 0 0 0; font-size: 16px; opacity: 0.9">
+          {{ property_title }}
+        </p>
+      </div>
+
+      <div style="padding: 40px 30px">
+        <h2>Hi {{ owner_name }},</h2>
+
+        <p>
+          You have a new booking request for your property
+          <strong>{{ property_title }}</strong> from {{ guest_name }}.
+        </p>
+
+        <div
+          style="
+            background-color: #f7fafc;
+            padding: 25px;
+            border-radius: 8px;
+            margin: 25px 0;
+          "
+        >
+          <h3 style="margin: 0 0 15px 0; color: #4f46e5">
+            📋 Booking Details:
+          </h3>
+          <table style="width: 100%; border-collapse: collapse">
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Guest:</td>
+              <td>{{ guest_name }} ({{ guest_email }})</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Check-in:</td>
+              <td>{{ check_in|date:"F j, Y" }}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Check-out:</td>
+              <td>{{ check_out|date:"F j, Y" }}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Nights:</td>
+              <td>{{ nights }}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Guests:</td>
+              <td>{{ guests_count }}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Total Amount:</td>
+              <td><strong>${{ total_amount }}</strong></td>
+            </tr>
+            {% if discount_applied > 0 %}
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Trust Discount:</td>
+              <td>{{ discount_applied }}%</td>
+            </tr>
+            {% endif %}
+          </table>
+        </div>
+
+        {% if special_requests %}
+        <div
+          style="
+            background-color: #fff3e0;
+            border-left: 4px solid #ff9800;
+            padding: 20px;
+            margin: 25px 0;
+            border-radius: 4px;
+          "
+        >
+          <strong>📝 Special Requests:</strong><br />
+          "{{ special_requests }}"
+        </div>
+        {% endif %}
+
+        <div style="text-align: center; margin: 40px 0">
+          <p style="margin-bottom: 20px">
+            <strong>What would you like to do?</strong>
+          </p>
+
+          <a
+            href="{{ approve_url }}"
+            style="
+              display: inline-block;
+              background: #22c55e;
+              color: white;
+              padding: 16px 32px;
+              text-decoration: none;
+              border-radius: 8px;
+              font-weight: 600;
+              font-size: 16px;
+              margin: 10px;
+            "
+          >
+            ✅ Approve Booking
+          </a>
+
+          <a
+            href="{{ reject_url }}"
+            style="
+              display: inline-block;
+              background: #ef4444;
+              color: white;
+              padding: 16px 32px;
+              text-decoration: none;
+              border-radius: 8px;
+              font-weight: 600;
+              font-size: 16px;
+              margin: 10px;
+            "
+          >
+            ❌ Decline Request
+          </a>
+        </div>
+
+        <p style="text-align: center; margin-top: 30px">
+          <a
+            href="{{ booking_url }}"
+            style="color: #4f46e5; text-decoration: none"
+            >View Full Details →</a
+          >
+        </p>
+
+        <p>Best regards,<br /><strong>The OnlyIfYouKnow Team</strong></p>
+      </div>
+
+      <div
+        style="
+          background-color: #f7fafc;
+          padding: 30px;
+          text-align: center;
+          font-size: 14px;
+          color: #718096;
+          border-top: 1px solid #e2e8f0;
+        "
+      >
+        <p>© 2025 OnlyIfYouKnow. All rights reserved.</p>
+      </div>
+    </div>
+  </body>
+</html>

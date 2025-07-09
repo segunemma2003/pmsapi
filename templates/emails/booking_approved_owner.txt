@@ -1,0 +1,30 @@
+✅ BOOKING APPROVED CONFIRMATION - {{ property_title }}
+
+Hi {{ owner_name }},
+
+This confirms that you have successfully approved the booking request from {{ guest_name }} for {{ property_title }}.
+
+CONFIRMED BOOKING DETAILS:
+- Guest: {{ guest_name }} ({{ guest_email }})
+- Property: {{ property_title }}
+- Check-in: {{ check_in|date:"F j, Y" }}
+- Check-out: {{ check_out|date:"F j, Y" }}
+- Nights: {{ nights }}
+- Guests: {{ guests_count }}
+- Total Amount: ${{ total_amount }}
+
+NEXT STEPS:
+- {{ guest_name }} has been notified of the approval
+- Your calendar has been updated automatically
+- The booking has been synced with your external calendars
+- {{ guest_name }} may contact you for check-in details
+
+📋 VIEW BOOKING DETAILS: {{ booking_url }}
+
+Thank you for being part of the OnlyIfYouKnow community!
+
+Best regards,
+The OnlyIfYouKnow Team
+
+---
+© 2025 OnlyIfYouKnow. All rights reserved.

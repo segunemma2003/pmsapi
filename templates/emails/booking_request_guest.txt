@@ -1,0 +1,32 @@
+📋 BOOKING REQUEST SUBMITTED - {{ property_title }}
+
+Hi {{ guest_name }},
+
+Thank you for your booking request! We've successfully submitted your request for {{ property_title }} and the property owner {{ owner_name }} will review it shortly.
+
+YOUR REQUEST DETAILS:
+- Property: {{ property_title }}
+- Check-in: {{ check_in|date:"F j, Y" }}
+- Check-out: {{ check_out|date:"F j, Y" }}
+- Nights: {{ nights }}
+- Guests: {{ guests_count }}
+- Total Amount: ${{ total_amount }}
+
+{% if special_requests %}YOUR SPECIAL REQUESTS:
+"{{ special_requests }}"{% endif %}
+
+WHAT HAPPENS NEXT?
+1. The property owner will review your request
+2. You'll receive an email notification with their decision
+3. If approved, your booking will be confirmed automatically
+4. You'll receive booking confirmation details and check-in instructions
+
+📋 VIEW REQUEST STATUS: {{ booking_url }}
+
+We'll keep you updated on the status of your request!
+
+Best regards,
+The OnlyIfYouKnow Team
+
+---
+© 2025 OnlyIfYouKnow. All rights reserved.

@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Booking Approved Confirmation</title>
+  </head>
+  <body
+    style="
+      font-family: Arial, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      max-width: 600px;
+      margin: 0 auto;
+      background-color: #f8f9fa;
+    "
+  >
+    <div
+      style="
+        background-color: white;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      "
+    >
+      <div
+        style="
+          background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+          color: white;
+          padding: 40px 30px;
+          text-align: center;
+        "
+      >
+        <h1 style="margin: 0; font-size: 28px; font-weight: 700">
+          ✅ Booking Approved
+        </h1>
+        <p style="margin: 8px 0 0 0; font-size: 16px; opacity: 0.9">
+          Confirmation for {{ property_title }}
+        </p>
+      </div>
+
+      <div style="padding: 40px 30px">
+        <h2>Hi {{ owner_name }},</h2>
+
+        <p>
+          This confirms that you have successfully approved the booking request
+          from <strong>{{ guest_name }}</strong> for
+          <strong>{{ property_title }}</strong>.
+        </p>
+
+        <div
+          style="
+            background-color: #dcfce7;
+            padding: 25px;
+            border-radius: 8px;
+            margin: 25px 0;
+            border: 1px solid #bbf7d0;
+          "
+        >
+          <h3 style="margin: 0 0 15px 0; color: #16a34a">
+            📋 Confirmed Booking Details:
+          </h3>
+          <table style="width: 100%; border-collapse: collapse">
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Guest:</td>
+              <td>{{ guest_name }} ({{ guest_email }})</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Property:</td>
+              <td>{{ property_title }}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Check-in:</td>
+              <td>{{ check_in|date:"F j, Y" }}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Check-out:</td>
+              <td>{{ check_out|date:"F j, Y" }}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Nights:</td>
+              <td>{{ nights }}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Guests:</td>
+              <td>{{ guests_count }}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Total Amount:</td>
+              <td><strong>${{ total_amount }}</strong></td>
+            </tr>
+          </table>
+        </div>
+
+        <div
+          style="
+            background-color: #f0f9ff;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 25px 0;
+            border: 1px solid #e0f2fe;
+          "
+        >
+          <h3 style="margin: 0 0 10px 0; color: #0369a1">📅 Next Steps:</h3>
+          <ul style="margin: 0; padding-left: 20px">
+            <li>{{ guest_name }} has been notified of the approval</li>
+            <li>Your calendar has been updated automatically</li>
+            <li>The booking has been synced with your external calendars</li>
+            <li>{{ guest_name }} may contact you for check-in details</li>
+          </ul>
+        </div>
+
+        <div style="text-align: center; margin: 40px 0">
+          <a
+            href="{{ booking_url }}"
+            style="
+              display: inline-block;
+              background: #4f46e5;
+              color: white;
+              padding: 16px 32px;
+              text-decoration: none;
+              border-radius: 8px;
+              font-weight: 600;
+              font-size: 16px;
+            "
+          >
+            📋 View Booking Details
+          </a>
+        </div>
+
+        <p>Thank you for being part of the OnlyIfYouKnow community!</p>
+
+        <p>Best regards,<br /><strong>The OnlyIfYouKnow Team</strong></p>
+      </div>
+
+      <div
+        style="
+          background-color: #f7fafc;
+          padding: 30px;
+          text-align: center;
+          font-size: 14px;
+          color: #718096;
+          border-top: 1px solid #e2e8f0;
+        "
+      >
+        <p>© 2025 OnlyIfYouKnow. All rights reserved.</p>
+      </div>
+    </div>
+  </body>
+</html>

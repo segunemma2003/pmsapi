@@ -1,0 +1,37 @@
+🎉 BOOKING APPROVED! - {{ property_title }}
+
+Congratulations {{ guest_name }}!
+
+Great news! {{ owner_name }} has approved your booking request for {{ property_title }}. Your stay is now confirmed!
+
+✅ CONFIRMED BOOKING DETAILS:
+- Property: {{ property_title }}
+- Address: {{ property_address }}
+- Check-in: {{ check_in|date:"F j, Y" }}
+- Check-out: {{ check_out|date:"F j, Y" }}
+- Nights: {{ nights }}
+- Guests: {{ guests_count }}
+- Total Amount: ${{ total_amount }}
+
+📞 OWNER CONTACT INFORMATION:
+{{ owner_name }}
+📧 {{ owner_email }}
+
+Feel free to contact {{ owner_name }} for check-in details and any questions about your stay.
+
+📅 BEFORE YOUR STAY:
+- Contact {{ owner_name }} for check-in instructions
+- Confirm your arrival time
+- Ask about parking and amenities
+- Review house rules and policies
+
+📋 VIEW BOOKING DETAILS: {{ booking_url }}
+🏠 VIEW PROPERTY: {{ property_url }}
+
+We hope you have a wonderful stay!
+
+Best regards,
+The OnlyIfYouKnow Team
+
+---
+© 2025 OnlyIfYouKnow. All rights reserved.

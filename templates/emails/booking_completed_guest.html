@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Thank You for Your Stay</title>
+  </head>
+  <body
+    style="
+      font-family: Arial, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      max-width: 600px;
+      margin: 0 auto;
+      background-color: #f8f9fa;
+    "
+  >
+    <div
+      style="
+        background-color: white;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      "
+    >
+      <div
+        style="
+          background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+          color: white;
+          padding: 40px 30px;
+          text-align: center;
+        "
+      >
+        <h1 style="margin: 0; font-size: 32px; font-weight: 700">
+          ✨ Thank You!
+        </h1>
+        <p style="margin: 12px 0 0 0; font-size: 18px; opacity: 0.9">
+          We hope you had a wonderful stay
+        </p>
+      </div>
+
+      <div style="padding: 40px 30px">
+        <h2>Hi {{ guest_name }},</h2>
+
+        <p>
+          We hope you had a wonderful time during your stay at
+          <strong>{{ property_title }}</strong> with
+          <strong>{{ owner_name }}</strong>!
+        </p>
+
+        <div
+          style="
+            background-color: #f3e8ff;
+            padding: 25px;
+            border-radius: 8px;
+            margin: 25px 0;
+            border: 1px solid #d8b4fe;
+          "
+        >
+          <h3 style="margin: 0 0 15px 0; color: #7c3aed">
+            📋 Your Completed Stay:
+          </h3>
+          <table style="width: 100%; border-collapse: collapse">
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Property:</td>
+              <td>{{ property_title }}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Check-in:</td>
+              <td>{{ check_in|date:"F j, Y" }}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Check-out:</td>
+              <td>{{ check_out|date:"F j, Y" }}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Nights:</td>
+              <td>{{ nights }}</td>
+            </tr>
+          </table>
+        </div>
+
+        <div
+          style="
+            background-color: #fef3c7;
+            padding: 25px;
+            border-radius: 8px;
+            margin: 25px 0;
+            border: 1px solid #fde68a;
+          "
+        >
+          <h3 style="margin: 0 0 15px 0; color: #92400e">
+            ⭐ Share Your Experience:
+          </h3>
+          <p style="margin: 0; color: #92400e">
+            Your feedback helps our community grow and helps other travelers
+            make great choices. Would you mind taking a moment to share your
+            experience?
+          </p>
+        </div>
+
+        <div style="text-align: center; margin: 40px 0">
+          <a
+            href="{{ review_url }}"
+            style="
+              display: inline-block;
+              background: #8b5cf6;
+              color: white;
+              padding: 18px 36px;
+              text-decoration: none;
+              border-radius: 8px;
+              font-weight: 600;
+              font-size: 18px;
+              margin: 10px;
+            "
+          >
+            📝 Leave a Review
+          </a>
+        </div>
+
+        <div
+          style="
+            background-color: #f0f9ff;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 25px 0;
+            border: 1px solid #e0f2fe;
+          "
+        >
+          <h3 style="margin: 0 0 10px 0; color: #0369a1">
+            🔍 Planning Your Next Stay?
+          </h3>
+          <p style="margin: 0; color: #0369a1">
+            Browse our trusted network of properties for your next adventure. As
+            a valued member, you have access to exclusive discounts through your
+            trust network connections.
+          </p>
+        </div>
+
+        <div style="text-align: center; margin: 30px 0">
+          <a
+            href="{{ search_url }}"
+            style="
+              display: inline-block;
+              background: #22c55e;
+              color: white;
+              padding: 16px 32px;
+              text-decoration: none;
+              border-radius: 8px;
+              font-weight: 600;
+              font-size: 16px;
+            "
+          >
+            🏠 Explore Properties
+          </a>
+        </div>
+
+        <p>
+          Thank you for being part of the OnlyIfYouKnow community. We look
+          forward to helping you with your future stays!
+        </p>
+
+        <p>Safe travels,<br /><strong>The OnlyIfYouKnow Team</strong></p>
+      </div>
+
+      <div
+        style="
+          background-color: #f7fafc;
+          padding: 30px;
+          text-align: center;
+          font-size: 14px;
+          color: #718096;
+          border-top: 1px solid #e2e8f0;
+        "
+      >
+        <p>© 2025 OnlyIfYouKnow. All rights reserved.</p>
+      </div>
+    </div>
+  </body>
+</html>

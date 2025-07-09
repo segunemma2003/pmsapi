@@ -247,88 +247,185 @@ class Beds24Service:
                 'error': f"Failed to get booking status: {str(e)}"
             }
             
-def create_property(self, property_data):
-    """Create property on Beds24"""
-    token = self.get_access_token()
-    
-    try:
-        response = requests.post(
-            f"{self.base_url}/properties",
-            headers={
-                'accept': 'application/json',
-                'Content-Type': 'application/json',
-                'Authorization': f'Bearer {token}'
-            },
-            json=property_data,
-            timeout=30
-        )
-        response.raise_for_status()
+    def create_property(self, property_data):
+        """Create property on Beds24"""
+        token = self.get_access_token()
         
-        result = response.json()
-        return {
-            'success': True,
-            'property_id': result.get('id'),
-            'data': result
-        }
-        
-    except requests.RequestException as e:
-        return {
-            'success': False,
-            'error': f"Failed to create property: {str(e)}"
-        }
-
-def get_property_ical_urls(self, property_id):
-    """Get iCal URLs for a property"""
-    token = self.get_access_token()
-    
-    try:
-        response = requests.get(
-            f"{self.base_url}/properties/{property_id}/ical",
-            headers={
-                'accept': 'application/json',
-                'Authorization': f'Bearer {token}'
-            },
-            timeout=30
-        )
-        response.raise_for_status()
-        
-        result = response.json()
-        return {
-            'success': True,
-            'ical_urls': {
-                'import_url': result.get('importUrl'),
-                'export_url': result.get('exportUrl'),
-                'sync_url': result.get('syncUrl')
+        try:
+            response = requests.post(
+                f"{self.base_url}/properties",
+                headers={
+                    'accept': 'application/json',
+                    'Content-Type': 'application/json',
+                    'Authorization': f'Bearer {token}'
+                },
+                json=property_data,
+                timeout=30
+            )
+            response.raise_for_status()
+            
+            result = response.json()
+            return {
+                'success': True,
+                'property_id': result.get('id'),
+                'data': result
             }
-        }
-        
-    except requests.RequestException as e:
-        return {
-            'success': False,
-            'error': f"Failed to get iCal URLs: {str(e)}"
-        }
+            
+        except requests.RequestException as e:
+            return {
+                'success': False,
+                'error': f"Failed to create property: {str(e)}"
+            }
 
-def update_property_visibility(self, property_id, is_visible):
-    """Update property visibility on Beds24"""
-    token = self.get_access_token()
+    def get_property_ical_urls(self, property_id):
+        """Get iCal URLs for a property"""
+        token = self.get_access_token()
+        
+        try:
+            response = requests.get(
+                f"{self.base_url}/properties/{property_id}/ical",
+                headers={
+                    'accept': 'application/json',
+                    'Authorization': f'Bearer {token}'
+                },
+                timeout=30
+            )
+            response.raise_for_status()
+            
+            result = response.json()
+            return {
+                'success': True,
+                'ical_urls': {
+                    'import_url': result.get('importUrl'),
+                    'export_url': result.get('exportUrl'),
+                    'sync_url': result.get('syncUrl')
+                }
+            }
+            
+        except requests.RequestException as e:
+            return {
+                'success': False,
+                'error': f"Failed to get iCal URLs: {str(e)}"
+            }
+
+    def update_property_visibility(self, property_id, is_visible):
+        """Update property visibility on Beds24"""
+        token = self.get_access_token()
+        
+        try:
+            response = requests.patch(
+                f"{self.base_url}/properties/{property_id}",
+                headers={
+                    'accept': 'application/json',
+                    'Content-Type': 'application/json',
+                    'Authorization': f'Bearer {token}'
+                },
+                json={'visible': is_visible},
+                timeout=30
+            )
+            response.raise_for_status()
+            
+            return {'success': True}
+            
+        except requests.RequestException as e:
+            return {
+                'success': False,
+                'error': f"Failed to update visibility: {str(e)}"
+            }
+            
+    def create_booking(self, booking_data):
+            """Create booking on Beds24"""
+            token = self.get_access_token()
+            
+            # Transform data to Beds24 format
+            beds24_booking = {
+                'propId': booking_data['property_id'],
+                'firstNight': booking_data['check_in'],
+                'lastNight': booking_data['check_out'],
+                'numAdult': booking_data['guests'],
+                'guestFirstName': booking_data['guest_name'].split(' ')[0],
+                'guestName': booking_data['guest_name'],
+                'guestEmail': booking_data['guest_email'],
+                'bookingPrice': booking_data['total_amount'],
+                'status': 1,  # Confirmed
+                'notes': booking_data.get('notes', ''),
+                'referer': f"OnlyIfYouKnow-{booking_data['booking_reference']}"
+            }
+            
+            try:
+                response = requests.post(
+                    f"{self.base_url}/bookings",
+                    headers={
+                        'accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'Authorization': f'Bearer {token}'
+                    },
+                    json=beds24_booking,
+                    timeout=30
+                )
+                response.raise_for_status()
+                
+                result = response.json()
+                return {
+                    'success': True,
+                    'booking_id': result.get('bookId'),
+                    'data': result
+                }
+                
+            except requests.RequestException as e:
+                return {
+                    'success': False,
+                    'error': f"Failed to create booking on Beds24: {str(e)}"
+                }
+                
+    def cancel_booking(self, beds24_booking_id):
+        """Cancel booking on Beds24"""
+        token = self.get_access_token()
+        
+        try:
+            response = requests.patch(
+                f"{self.base_url}/bookings/{beds24_booking_id}",
+                headers={
+                    'accept': 'application/json',
+                    'Content-Type': 'application/json',
+                    'Authorization': f'Bearer {token}'
+                },
+                json={'status': 3},  # Cancelled status
+                timeout=30
+            )
+            response.raise_for_status()
+            
+            return {'success': True, 'message': 'Booking cancelled on Beds24'}
+            
+        except requests.RequestException as e:
+            return {
+                'success': False,
+                'error': f"Failed to cancel booking on Beds24: {str(e)}"
+            }
     
-    try:
-        response = requests.patch(
-            f"{self.base_url}/properties/{property_id}",
-            headers={
-                'accept': 'application/json',
-                'Content-Type': 'application/json',
-                'Authorization': f'Bearer {token}'
-            },
-            json={'visible': is_visible},
-            timeout=30
-        )
-        response.raise_for_status()
+    def get_booking_details(self, beds24_booking_id):
+        """Get booking details from Beds24"""
+        token = self.get_access_token()
         
-        return {'success': True}
-        
-    except requests.RequestException as e:
-        return {
-            'success': False,
-            'error': f"Failed to update visibility: {str(e)}"
-        }
+        try:
+            response = requests.get(
+                f"{self.base_url}/bookings/{beds24_booking_id}",
+                headers={
+                    'accept': 'application/json',
+                    'Authorization': f'Bearer {token}'
+                },
+                timeout=30
+            )
+            response.raise_for_status()
+            
+            return {
+                'success': True,
+                'booking': response.json()
+            }
+            
+        except requests.RequestException as e:
+            return {
+                'success': False,
+                'error': f"Failed to get booking details: {str(e)}"
+            }
+                

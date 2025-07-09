@@ -1,0 +1,27 @@
+📅 CHECK-IN REMINDER - {{ property_title }}
+
+Hi {{ guest_name }},
+
+Just a friendly reminder that your check-in at {{ property_title }} is coming up!
+
+CHECK-IN DETAILS:
+- Date: {{ check_in|date:"F j, Y" }}
+- Property: {{ property_title }}
+- Address: {{ property_address }}
+- Owner: {{ owner_name }} ({{ owner_email }})
+
+BEFORE YOU ARRIVE:
+- Contact {{ owner_name }} if you haven't already
+- Confirm your arrival time
+- Get check-in instructions and keys/codes
+- Ask about parking if needed
+
+📋 VIEW BOOKING: {{ booking_url }}
+📞 CONTACT OWNER: {{ owner_email }}
+
+Have a great stay!
+
+The OnlyIfYouKnow Team
+
+---
+© 2025 OnlyIfYouKnow. All rights reserved.

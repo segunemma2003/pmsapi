@@ -1,0 +1,28 @@
+📅 CHECK-OUT REMINDER - {{ property_title }}
+
+Hi {{ guest_name }},
+
+We hope you're enjoying your stay at {{ property_title }}! Just a reminder that your check-out is scheduled for tomorrow.
+
+CHECK-OUT DETAILS:
+- Date: {{ check_out|date:"F j, Y" }}
+- Property: {{ property_title }}
+- Owner: {{ owner_name }} ({{ owner_email }})
+
+BEFORE YOU LEAVE:
+- Confirm check-out time with {{ owner_name }}
+- Follow any house rules for departure
+- Return keys/access cards as instructed
+- Leave the property as you found it
+
+Don't forget to leave a review about your experience!
+
+📝 LEAVE A REVIEW: {{ review_url }}
+📋 VIEW BOOKING: {{ booking_url }}
+
+Thank you for staying with us!
+
+The OnlyIfYouKnow Team
+
+---
+© 2025 OnlyIfYouKnow. All rights reserved.

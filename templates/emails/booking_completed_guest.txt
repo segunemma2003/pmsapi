@@ -1,0 +1,26 @@
+✨ THANK YOU FOR YOUR STAY - {{ property_title }}
+
+Hi {{ guest_name }},
+
+We hope you had a wonderful time during your stay at {{ property_title }} with {{ owner_name }}!
+
+YOUR COMPLETED STAY:
+- Property: {{ property_title }}
+- Check-in: {{ check_in|date:"F j, Y" }}
+- Check-out: {{ check_out|date:"F j, Y" }}
+- Nights: {{ nights }}
+
+⭐ SHARE YOUR EXPERIENCE:
+Your feedback helps our community grow and helps other travelers make great choices. Would you mind taking a moment to share your experience?
+
+📝 LEAVE A REVIEW: {{ review_url }}
+
+🔍 PLANNING YOUR NEXT STAY?
+Browse our trusted network of properties for your next adventure. As a valued member, you have access to exclusive discounts through your trust network connections.
+
+🏠 EXPLORE PROPERTIES: {{ search_url }}
+
+Thank you for being part of the OnlyIfYouKnow community. We look forward to helping you with your future stays!
+
+Safe travels,
+The OnlyIfYouKnow Team

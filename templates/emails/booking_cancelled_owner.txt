@@ -1,0 +1,32 @@
+🚫 BOOKING CANCELLED BY GUEST - {{ property_title }}
+
+Hi {{ owner_name }},
+
+We're writing to inform you that {{ guest_name }} has cancelled their confirmed booking for {{ property_title }}.
+
+CANCELLED BOOKING DETAILS:
+- Guest: {{ guest_name }} ({{ guest_email }})
+- Property: {{ property_title }}
+- Check-in: {{ check_in|date:"F j, Y" }}
+- Check-out: {{ check_out|date:"F j, Y" }}
+- Nights: {{ nights }}
+- Total Amount: ${{ total_amount }}
+- Cancelled by: {{ cancelled_by|title }}
+
+{% if cancellation_reason %}CANCELLATION REASON:
+"{{ cancellation_reason }}"{% endif %}
+
+AUTOMATIC UPDATES:
+- Your calendar has been updated to show availability
+- External calendars (Beds24, iCal) have been synchronized
+- These dates are now available for new bookings
+
+The dates are now open for new reservations. You may receive new booking requests for these dates.
+
+If you have any questions about this cancellation, please contact our support team.
+
+Best regards,
+The OnlyIfYouKnow Team
+
+---
+© 2025 OnlyIfYouKnow. All rights reserved.

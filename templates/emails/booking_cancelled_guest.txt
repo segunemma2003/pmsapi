@@ -1,0 +1,37 @@
+🚫 BOOKING CANCELLED - {{ property_title }}
+
+Hi {{ guest_name }},
+
+{% if was_cancelled_by_owner %}
+We're writing to inform you that {{ owner_name }} has cancelled your confirmed booking for {{ property_title }} ({{ check_in|date:"F j, Y" }} - {{ check_out|date:"F j, Y" }}).
+
+{% if cancellation_reason %}REASON PROVIDED:
+"{{ cancellation_reason }}"{% endif %}
+
+We sincerely apologize for any inconvenience this may cause. We understand how disappointing this can be when you've made plans.
+
+🔍 FIND ALTERNATIVE ACCOMMODATION:
+We'd be happy to help you find another property for your dates. Our support team is standing by to assist you.
+
+📞 CONTACT SUPPORT: support@oifyk.com
+🔍 BROWSE PROPERTIES: {{ search_url }}
+
+{% else %}
+This confirms that your booking for {{ property_title }} ({{ check_in|date:"F j, Y" }} - {{ check_out|date:"F j, Y" }}) has been successfully cancelled as requested.
+
+{% if cancellation_reason %}CANCELLATION REASON:
+"{{ cancellation_reason }}"{% endif %}
+
+Your cancellation has been processed and:
+- The property owner has been notified
+- Your calendar booking has been removed
+- External calendars have been updated
+{% endif %}
+
+If you have any questions or need assistance, please don't hesitate to contact us.
+
+Best regards,
+The OnlyIfYouKnow Team
+
+---
+© 2025 OnlyIfYouKnow. All rights reserved.

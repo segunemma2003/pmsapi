@@ -1,11 +1,12 @@
+from bookings.tasks import send_booking_approval_emails, send_booking_rejection_emails, send_booking_request_emails
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from .models import Booking
-from .serializers import BookingSerializer, BookingCreateSerializer
 from django.db.models import Q, Sum, Count, Avg
 from django.utils import timezone
-from datetime import timedelta
+from datetime import timedelta, date
+from .models import Booking
+from .serializers import BookingSerializer, BookingCreateSerializer
 
 class BookingViewSet(viewsets.ModelViewSet):
     serializer_class = BookingSerializer
@@ -17,224 +18,383 @@ class BookingViewSet(viewsets.ModelViewSet):
         if user.user_type == 'admin':
             return Booking.objects.select_related(
                 'property', 'guest'
-            ).prefetch_related('property__owner').all().order_by('-created_at')
+            ).prefetch_related('property__owner').all().order_by('-requested_at')
         elif user.user_type == 'owner':
-            # Owner sees bookings for their properties
+            # Owner sees booking requests for their properties
             return Booking.objects.select_related(
                 'property', 'guest'
-            ).filter(property__owner=user).order_by('-created_at')
+            ).filter(property__owner=user).order_by('-requested_at')
         else:
-            # User sees their own bookings
+            # User sees their own booking requests
             return Booking.objects.select_related(
                 'property'
-            ).filter(guest=user).order_by('-created_at')
+            ).filter(guest=user).order_by('-requested_at')
     
     def get_serializer_class(self):
         if self.action == 'create':
             return BookingCreateSerializer
         return BookingSerializer
     
-    @action(detail=True, methods=['patch'])
-    def update_status(self, request, pk=None):
-        """Update booking status"""
-        booking = self.get_object()
-        new_status = request.data.get('status')
+    def create(self, request, *args, **kwargs):
+        """Create booking request (always starts as pending)"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         
-        if new_status not in ['confirmed', 'cancelled']:
-            return Response(
-                {'error': 'Invalid status'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        # Additional validation for availability
+        property_obj = serializer.validated_data['property']
+        check_in = serializer.validated_data['check_in_date']
+        check_out = serializer.validated_data['check_out_date']
         
-        # Check permissions
-        if request.user.user_type not in ['admin'] and booking.property.owner != request.user:
-            return Response(
-                {'error': 'Permission denied'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        booking.status = new_status
-        booking.save()
-        
-        return Response({'message': f'Booking {new_status} successfully'})
-    
-    @action(detail=False, methods=['get'])
-    def stats(self, request):
-        """Get booking statistics"""
-        timeframe = request.GET.get('timeframe', 'month')
-        user = request.user
-        
-        # Calculate date range
-        now = timezone.now()
-        if timeframe == 'week':
-            start_date = now - timedelta(days=7)
-        elif timeframe == 'year':
-            start_date = now - timedelta(days=365)
-        else:  # month
-            start_date = now - timedelta(days=30)
-        
-        # Filter bookings based on user type
-        if user.user_type == 'owner':
-            queryset = Booking.objects.filter(property__owner=user)
-        elif user.user_type == 'admin':
-            queryset = Booking.objects.all()
-        else:
-            queryset = Booking.objects.filter(guest=user)
-        
-        # Calculate statistics
-        total_bookings = queryset.count()
-        period_bookings = queryset.filter(created_at__gte=start_date)
-        
-        confirmed_bookings = queryset.filter(status='confirmed').count()
-        completed_bookings = queryset.filter(status='completed').count()
-        cancelled_bookings = queryset.filter(status='cancelled').count()
-        
-        total_revenue = queryset.filter(
-            status__in=['confirmed', 'completed']
-        ).aggregate(total=Sum('total_amount'))['total'] or 0
-        
-        period_revenue = period_bookings.filter(
-            status__in=['confirmed', 'completed']
-        ).aggregate(total=Sum('total_amount'))['total'] or 0
-        
-        average_booking_value = queryset.filter(
-            status__in=['confirmed', 'completed']
-        ).aggregate(avg=Avg('total_amount'))['avg'] or 0
-        
-        # Upcoming bookings
-        upcoming_bookings = queryset.filter(
-            check_in_date__gte=now.date(),
-            status__in=['confirmed', 'pending']
-        ).count()
-        
-        stats = {
-            'timeframe': timeframe,
-            'total_bookings': total_bookings,
-            'period_bookings': period_bookings.count(),
-            'confirmed_bookings': confirmed_bookings,
-            'completed_bookings': completed_bookings,
-            'cancelled_bookings': cancelled_bookings,
-            'upcoming_bookings': upcoming_bookings,
-            'total_revenue': float(total_revenue),
-            'period_revenue': float(period_revenue),
-            'average_booking_value': float(average_booking_value),
-            'confirmation_rate': (confirmed_bookings / total_bookings * 100) if total_bookings > 0 else 0,
-            'cancellation_rate': (cancelled_bookings / total_bookings * 100) if total_bookings > 0 else 0,
-        }
-        
-        # Add monthly breakdown for the period
-        monthly_data = []
-        current_date = start_date
-        while current_date <= now:
-            month_start = current_date.replace(day=1)
-            next_month = (month_start + timedelta(days=32)).replace(day=1)
-            
-            month_bookings = period_bookings.filter(
-                created_at__gte=month_start,
-                created_at__lt=next_month
-            )
-            
-            month_revenue = month_bookings.filter(
-                status__in=['confirmed', 'completed']
-            ).aggregate(total=Sum('total_amount'))['total'] or 0
-            
-            monthly_data.append({
-                'month': month_start.strftime('%Y-%m'),
-                'bookings': month_bookings.count(),
-                'revenue': float(month_revenue)
-            })
-            
-            current_date = next_month
-        
-        stats['monthly_breakdown'] = monthly_data
-        
-        return Response(stats)
-
-    @action(detail=True, methods=['get'])
-    def details(self, request, pk=None):
-        """Get detailed booking information"""
-        booking = self.get_object()
-        
-        # Check permissions
-        if (booking.guest != request.user and 
-            booking.property.owner != request.user and 
-            request.user.user_type != 'admin'):
-            return Response(
-                {'error': 'Permission denied'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        serializer = self.get_serializer(booking)
-        data = serializer.data
-        
-        # Add additional details
-        data['nights'] = (booking.check_out_date - booking.check_in_date).days
-        data['days_until_checkin'] = (booking.check_in_date - timezone.now().date()).days
-        data['can_cancel'] = (
-            booking.status in ['pending', 'confirmed'] and
-            booking.check_in_date > timezone.now().date() + timedelta(days=1)
-        )
-        data['can_modify'] = (
-            booking.status == 'pending' and
-            booking.check_in_date > timezone.now().date() + timedelta(days=2)
+        # Check for availability conflicts (only confirmed bookings block dates)
+        conflicting_bookings = Booking.objects.filter(
+            property=property_obj,
+            status__in=['confirmed'],  # Only confirmed bookings block dates
+            check_in_date__lt=check_out,
+            check_out_date__gt=check_in
         )
         
-        return Response(data)
-
-    @action(detail=True, methods=['post'])
-    def cancel(self, request, pk=None):
-        """Cancel a booking"""
-        booking = self.get_object()
+        if conflicting_bookings.exists():
+            return Response({
+                'error': 'Property is not available for selected dates',
+                'conflicting_bookings': conflicting_bookings.count()
+            }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Check permissions
-        if (booking.guest != request.user and 
-            booking.property.owner != request.user and 
-            request.user.user_type != 'admin'):
-            return Response(
-                {'error': 'Permission denied'},
-                status=status.HTTP_403_FORBIDDEN
+        # Check beds24 availability if property is synced
+        if property_obj.beds24_property_id:
+            availability_result = self._check_beds24_availability(
+                property_obj, check_in, check_out
             )
+            if not availability_result['available']:
+                return Response({
+                    'error': 'Property is not available on external calendar',
+                    'details': availability_result.get('reason', '')
+                }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Check if cancellation is allowed
-        if booking.status not in ['pending', 'confirmed']:
-            return Response(
-                {'error': 'Booking cannot be cancelled'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        # Create booking request (status = pending)
+        booking = serializer.save(status='pending')
         
-        # Check cancellation policy (24 hours before check-in)
-        if booking.check_in_date <= timezone.now().date() + timedelta(days=1):
-            return Response(
-                {'error': 'Cannot cancel booking less than 24 hours before check-in'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Cancel the booking
-        booking.status = 'cancelled'
-        booking.save()
+        # Notify property owner
+        self._notify_owner_new_request(booking)
+        send_booking_request_emails.delay(str(booking.id))
         
         # Log activity
         from analytics.models import ActivityLog
         ActivityLog.objects.create(
-            action='booking_cancelled',
+            action='booking_request_created',
+            user=request.user,
+            resource_type='booking',
+            resource_id=str(booking.id),
+            details={
+                'property_id': str(property_obj.id),
+                'property_title': property_obj.title,
+                'check_in': check_in.isoformat(),
+                'check_out': check_out.isoformat(),
+                'guests': booking.guests_count,
+                'total_amount': str(booking.total_amount)
+            }
+        )
+        
+        return Response({
+            'message': 'Booking request submitted successfully',
+            'booking': BookingSerializer(booking, context={'request': request}).data,
+            'status': 'pending_approval'
+        }, status=status.HTTP_201_CREATED)
+    
+    @action(detail=True, methods=['post'])
+    def approve_booking(self, request, pk=None):
+        """Owner approves booking request"""
+        booking = self.get_object()
+        
+        # Security check - only property owner can approve
+        if booking.property.owner != request.user:
+            return Response(
+                {'error': 'Only property owner can approve bookings'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        if not booking.can_be_approved():
+            return Response(
+                {'error': f'Booking cannot be approved. Current status: {booking.get_status_display()}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Final availability check before approval
+        conflicting_bookings = Booking.objects.filter(
+            property=booking.property,
+            status='confirmed',
+            check_in_date__lt=booking.check_out_date,
+            check_out_date__gt=booking.check_in_date
+        ).exclude(id=booking.id)
+        
+        if conflicting_bookings.exists():
+            return Response({
+                'error': 'Cannot approve - conflicting confirmed booking exists',
+                'conflict_count': conflicting_bookings.count()
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Approve booking
+        booking.status = 'confirmed'
+        booking.approved_at = timezone.now()
+        booking.save()
+        
+        # Sync with Beds24 in background
+        if booking.property.beds24_property_id:
+            from .tasks import sync_booking_to_beds24
+            sync_booking_to_beds24.delay(str(booking.id), action='create')
+        
+        # Notify guest of approval
+        self._notify_guest_booking_approved(booking)
+        send_booking_approval_emails.delay(str(booking.id))
+        
+        # Log activity
+        from analytics.models import ActivityLog
+        ActivityLog.objects.create(
+            action='booking_approved',
             user=request.user,
             resource_type='booking',
             resource_id=str(booking.id),
             details={
                 'booking_id': str(booking.id),
-                'property_title': booking.property.title,
-                'cancelled_by': request.user.user_type
+                'guest_name': booking.guest.full_name,
+                'property_title': booking.property.title
             }
         )
         
         return Response({
-            'message': 'Booking cancelled successfully',
-            'booking_id': str(booking.id)
+            'message': 'Booking approved successfully',
+            'booking': BookingSerializer(booking, context={'request': request}).data,
+            'beds24_sync': 'queued' if booking.property.beds24_property_id else 'not_applicable'
         })
-
+    
     @action(detail=True, methods=['post'])
-    def complete(self, request, pk=None):
-        """Mark booking as completed (owner only)"""
+    def reject_booking(self, request, pk=None):
+        """Owner rejects booking request"""
+        booking = self.get_object()
+        
+        # Security check
+        if booking.property.owner != request.user:
+            return Response(
+                {'error': 'Only property owner can reject bookings'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        if not booking.can_be_rejected():
+            return Response(
+                {'error': f'Booking cannot be rejected. Current status: {booking.get_status_display()}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        rejection_reason = request.data.get('reason', '')
+        
+        # Reject booking
+        booking.status = 'rejected'
+        booking.rejected_at = timezone.now()
+        booking.rejection_reason = rejection_reason
+        booking.save()
+        
+        # Notify guest of rejection
+        self._notify_guest_booking_rejected(booking, rejection_reason)
+        send_booking_rejection_emails.delay(str(booking.id), rejection_reason)
+        
+        # Log activity
+        from analytics.models import ActivityLog
+        ActivityLog.objects.create(
+            action='booking_rejected',
+            user=request.user,
+            resource_type='booking',
+            resource_id=str(booking.id),
+            details={
+                'booking_id': str(booking.id),
+                'guest_name': booking.guest.full_name,
+                'property_title': booking.property.title,
+                'reason': rejection_reason
+            }
+        )
+        
+        return Response({
+            'message': 'Booking rejected',
+            'booking': BookingSerializer(booking, context={'request': request}).data
+        })
+    
+    @action(detail=False, methods=['get'])
+    def pending_requests(self, request):
+        """Get pending booking requests for owner"""
+        if request.user.user_type != 'owner':
+            return Response(
+                {'error': 'Only owners can view pending requests'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        pending_bookings = Booking.objects.select_related(
+            'property', 'guest'
+        ).filter(
+            property__owner=request.user,
+            status='pending'
+        ).order_by('-requested_at')
+        
+        serializer = BookingSerializer(pending_bookings, many=True, context={'request': request})
+        
+        return Response({
+            'count': pending_bookings.count(),
+            'results': serializer.data
+        })
+    
+    
+    def schedule_booking_reminders(self, booking):
+        """Schedule reminder emails for confirmed booking"""
+        from datetime import timedelta
+        from django_celery_beat.models import PeriodicTask, CrontabSchedule
+        import json
+        
+        if booking.status == 'confirmed':
+            # Schedule check-in reminder (24 hours before)
+            checkin_reminder_time = booking.check_in_date - timedelta(days=1)
+            
+            # Schedule check-out reminder (24 hours before)
+            checkout_reminder_time = booking.check_out_date - timedelta(days=1)
+            
+            # You can implement this with django-celery-beat or simpler daily task
+            # For now, the daily task will handle all reminders
+            
+    def _check_beds24_availability(self, property_obj, check_in, check_out):
+        """Check availability on Beds24/external calendars"""
+        try:
+            from beds24_integration.services import Beds24Service
+            beds24_service = Beds24Service()
+            
+            result = beds24_service.get_property_availability(
+                property_obj.beds24_property_id,
+                check_in,
+                check_out
+            )
+            
+            if result['success']:
+                # Parse availability data
+                availability = result['availability']
+                # Implementation depends on Beds24 API response format
+                # For now, assume it returns available: true/false
+                return {'available': availability.get('available', True)}
+            else:
+                # If check fails, allow booking but log error
+                return {'available': True, 'reason': 'Could not verify external availability'}
+                
+        except Exception as e:
+            # Don't block booking if availability check fails
+            return {'available': True, 'reason': f'Availability check error: {str(e)}'}
+    
+    def _notify_owner_new_request(self, booking):
+        """Send notification to owner about new booking request"""
+        from notifications.services import NotificationService
+        
+        NotificationService.create_notification(
+            user=booking.property.owner,
+            title="New Booking Request",
+            message=f"You have a new booking request for {booking.property.title} from {booking.guest.full_name}",
+            notification_type='booking_request',
+            data={
+                'booking_id': str(booking.id),
+                'property_id': str(booking.property.id),
+                'guest_name': booking.guest.full_name,
+                'check_in': booking.check_in_date.isoformat(),
+                'check_out': booking.check_out_date.isoformat(),
+                'guests': booking.guests_count,
+                'total_amount': str(booking.total_amount)
+            }
+        )
+    
+    def _notify_guest_booking_approved(self, booking):
+        """Notify guest that booking was approved"""
+        from notifications.services import NotificationService
+        
+        NotificationService.create_notification(
+            user=booking.guest,
+            title="Booking Approved! 🎉",
+            message=f"Your booking for {booking.property.title} has been approved by the owner",
+            notification_type='booking_confirmed',
+            data={
+                'booking_id': str(booking.id),
+                'property_id': str(booking.property.id),
+                'property_title': booking.property.title,
+                'check_in': booking.check_in_date.isoformat(),
+                'check_out': booking.check_out_date.isoformat()
+            }
+        )
+    
+    def _notify_guest_booking_rejected(self, booking, reason):
+        """Notify guest that booking was rejected"""
+        from notifications.services import NotificationService
+        
+        message = f"Your booking request for {booking.property.title} was not approved"
+        if reason:
+            message += f". Reason: {reason}"
+        
+        NotificationService.create_notification(
+            user=booking.guest,
+            title="Booking Request Update",
+            message=message,
+            notification_type='booking_cancelled',
+            data={
+                'booking_id': str(booking.id),
+                'property_id': str(booking.property.id),
+                'property_title': booking.property.title,
+                'reason': reason
+            }
+        )
+        
+    @action(detail=False, methods=['get'])
+    def owner_dashboard_stats(self, request):
+        """Get booking statistics for property owner"""
+        if request.user.user_type != 'owner':
+            return Response(
+                {'error': 'Only owners can view dashboard stats'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        from django.db.models import Sum, Count, Avg
+        from datetime import datetime, timedelta
+        
+        now = timezone.now()
+        last_30_days = now - timedelta(days=30)
+        
+        # Get owner's bookings
+        owner_bookings = Booking.objects.filter(property__owner=request.user)
+        
+        stats = {
+            'pending_requests': owner_bookings.filter(status='pending').count(),
+            'confirmed_bookings': owner_bookings.filter(status='confirmed').count(),
+            'total_bookings_30_days': owner_bookings.filter(
+                requested_at__gte=last_30_days
+            ).count(),
+            'total_revenue_confirmed': owner_bookings.filter(
+                status__in=['confirmed', 'completed']
+            ).aggregate(total=Sum('total_amount'))['total'] or 0,
+            'average_booking_value': owner_bookings.filter(
+                status__in=['confirmed', 'completed']
+            ).aggregate(avg=Avg('total_amount'))['avg'] or 0,
+            'approval_rate': 0,
+            'upcoming_checkins': owner_bookings.filter(
+                status='confirmed',
+                check_in_date__gte=now.date(),
+                check_in_date__lte=(now + timedelta(days=7)).date()
+            ).count(),
+            'current_guests': owner_bookings.filter(
+                status='confirmed',
+                check_in_date__lte=now.date(),
+                check_out_date__gt=now.date()
+            ).count()
+        }
+        
+        # Calculate approval rate
+        total_requests = owner_bookings.exclude(status='pending').count()
+        if total_requests > 0:
+            approved = owner_bookings.filter(status__in=['confirmed', 'completed']).count()
+            stats['approval_rate'] = (approved / total_requests) * 100
+        
+        return Response(stats)
+    
+    @action(detail=True, methods=['post'])
+    def complete_booking(self, request, pk=None):
+        """Mark booking as completed (owner only, after guest checkout)"""
         booking = self.get_object()
         
         # Only property owner can mark as completed
@@ -262,7 +422,162 @@ class BookingViewSet(viewsets.ModelViewSet):
         booking.status = 'completed'
         booking.save()
         
+        # Send completion notifications
+        from .tasks import send_booking_completion_notifications
+        send_booking_completion_notifications.delay(str(booking.id))
+        
+        # Log activity
+        from analytics.models import ActivityLog
+        ActivityLog.objects.create(
+            action='booking_completed',
+            user=request.user,
+            resource_type='booking',
+            resource_id=str(booking.id),
+            details={
+                'booking_id': str(booking.id),
+                'guest_name': booking.guest.full_name,
+                'property_title': booking.property.title
+            }
+        )
+        
         return Response({
             'message': 'Booking marked as completed',
-            'booking_id': str(booking.id)
+            'booking': BookingSerializer(booking, context={'request': request}).data
+        })
+
+    @action(detail=True, methods=['post'])
+    def cancel_booking(self, request, pk=None):
+        """Cancel a confirmed booking (guest or owner)"""
+        booking = self.get_object()
+        
+        # Check permissions (guest or owner can cancel)
+        can_cancel = (
+            booking.guest == request.user or 
+            booking.property.owner == request.user or 
+            request.user.user_type == 'admin'
+        )
+        
+        if not can_cancel:
+            return Response(
+                {'error': 'Permission denied'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Check if booking can be cancelled
+        if booking.status not in ['pending', 'confirmed']:
+            return Response(
+                {'error': f'Cannot cancel booking with status: {booking.get_status_display()}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get cancellation reason
+        cancellation_reason = request.data.get('reason', '')
+        cancellation_policy = request.data.get('policy_applied', False)  # For future use
+        
+        # Cancel the booking
+        original_status = booking.status
+        booking.status = 'cancelled'
+        booking.booking_metadata.update({
+            'cancelled_by': request.user.user_type,
+            'cancelled_at': timezone.now().isoformat(),
+            'cancellation_reason': cancellation_reason,
+            'original_status': original_status
+        })
+        booking.save()
+        
+        # Cancel on Beds24 if it was synced
+        if booking.beds24_booking_id:
+            from .tasks import sync_booking_to_beds24
+            sync_booking_to_beds24.delay(str(booking.id), action='cancel')
+        
+        # Send cancellation notifications
+        from .tasks import send_booking_cancellation_notifications
+        send_booking_cancellation_notifications.delay(
+            str(booking.id), 
+            cancelled_by=request.user.user_type,
+            reason=cancellation_reason
+        )
+        
+        # Log activity
+        from analytics.models import ActivityLog
+        ActivityLog.objects.create(
+            action='booking_cancelled',
+            user=request.user,
+            resource_type='booking',
+            resource_id=str(booking.id),
+            details={
+                'booking_id': str(booking.id),
+                'cancelled_by': request.user.user_type,
+                'reason': cancellation_reason,
+                'original_status': original_status
+            }
+        )
+        
+        return Response({
+            'message': 'Booking cancelled successfully',
+            'booking': BookingSerializer(booking, context={'request': request}).data,
+            'beds24_sync': 'queued' if booking.beds24_booking_id else 'not_applicable'
+        })
+
+    @action(detail=False, methods=['get'])
+    def upcoming_checkins(self, request):
+        """Get upcoming check-ins for owner (next 7 days)"""
+        if request.user.user_type != 'owner':
+            return Response(
+                {'error': 'Only owners can view upcoming check-ins'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        from datetime import date, timedelta
+        
+        today = date.today()
+        next_week = today + timedelta(days=7)
+        
+        upcoming_bookings = Booking.objects.select_related(
+            'property', 'guest'
+        ).filter(
+            property__owner=request.user,
+            status='confirmed',
+            check_in_date__gte=today,
+            check_in_date__lte=next_week
+        ).order_by('check_in_date')
+        
+        serializer = BookingSerializer(upcoming_bookings, many=True, context={'request': request})
+        
+        return Response({
+            'count': upcoming_bookings.count(),
+            'date_range': {
+                'start': today.isoformat(),
+                'end': next_week.isoformat()
+            },
+            'results': serializer.data
+        })
+
+    @action(detail=False, methods=['get'])
+    def current_guests(self, request):
+        """Get current guests (checked in, not yet checked out)"""
+        if request.user.user_type != 'owner':
+            return Response(
+                {'error': 'Only owners can view current guests'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        from datetime import date
+        
+        today = date.today()
+        
+        current_bookings = Booking.objects.select_related(
+            'property', 'guest'
+        ).filter(
+            property__owner=request.user,
+            status='confirmed',
+            check_in_date__lte=today,
+            check_out_date__gt=today
+        ).order_by('check_out_date')
+        
+        serializer = BookingSerializer(current_bookings, many=True, context={'request': request})
+        
+        return Response({
+            'count': current_bookings.count(),
+            'results': serializer.data
         })

@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Booking Cancelled by Guest</title>
+  </head>
+  <body
+    style="
+      font-family: Arial, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      max-width: 600px;
+      margin: 0 auto;
+      background-color: #f8f9fa;
+    "
+  >
+    <div
+      style="
+        background-color: white;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      "
+    >
+      <div
+        style="
+          background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+          color: white;
+          padding: 40px 30px;
+          text-align: center;
+        "
+      >
+        <h1 style="margin: 0; font-size: 28px; font-weight: 700">
+          🚫 Booking Cancelled
+        </h1>
+        <p style="margin: 8px 0 0 0; font-size: 16px; opacity: 0.9">by Guest</p>
+      </div>
+
+      <div style="padding: 40px 30px">
+        <h2>Hi {{ owner_name }},</h2>
+
+        <p>
+          We're writing to inform you that <strong>{{ guest_name }}</strong> has
+          cancelled their confirmed booking for
+          <strong>{{ property_title }}</strong>.
+        </p>
+
+        <div
+          style="
+            background-color: #fff7ed;
+            padding: 25px;
+            border-radius: 8px;
+            margin: 25px 0;
+            border: 1px solid #fed7aa;
+          "
+        >
+          <h3 style="margin: 0 0 15px 0; color: #ea580c">
+            📋 Cancelled Booking Details:
+          </h3>
+          <table style="width: 100%; border-collapse: collapse">
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Guest:</td>
+              <td>{{ guest_name }} ({{ guest_email }})</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Property:</td>
+              <td>{{ property_title }}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Check-in:</td>
+              <td>{{ check_in|date:"F j, Y" }}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Check-out:</td>
+              <td>{{ check_out|date:"F j, Y" }}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Nights:</td>
+              <td>{{ nights }}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Total Amount:</td>
+              <td>${{ total_amount }}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold">Cancelled by:</td>
+              <td>{{ cancelled_by|title }}</td>
+            </tr>
+          </table>
+        </div>
+
+        {% if cancellation_reason %}
+        <div
+          style="
+            background-color: #f0f9ff;
+            border-left: 4px solid #3b82f6;
+            padding: 20px;
+            margin: 25px 0;
+            border-radius: 4px;
+          "
+        >
+          <strong>📝 Cancellation reason:</strong><br />
+          "{{ cancellation_reason }}"
+        </div>
+        {% endif %}
+
+        <div
+          style="
+            background-color: #dcfce7;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 25px 0;
+            border: 1px solid #bbf7d0;
+          "
+        >
+          <h3 style="margin: 0 0 10px 0; color: #16a34a">
+            ✅ Automatic Updates:
+          </h3>
+          <ul style="margin: 0; padding-left: 20px; color: #15803d">
+            <li>Your calendar has been updated to show availability</li>
+            <li>External calendars (Beds24, iCal) have been synchronized</li>
+            <li>These dates are now available for new bookings</li>
+          </ul>
+        </div>
+
+        <p>
+          The dates are now open for new reservations. You may receive new
+          booking requests for these dates.
+        </p>
+
+        <p>
+          If you have any questions about this cancellation, please contact our
+          support team.
+        </p>
+
+        <p>Best regards,<br /><strong>The OnlyIfYouKnow Team</strong></p>
+      </div>
+
+      <div
+        style="
+          background-color: #f7fafc;
+          padding: 30px;
+          text-align: center;
+          font-size: 14px;
+          color: #718096;
+          border-top: 1px solid #e2e8f0;
+        "
+      >
+        <p>© 2025 OnlyIfYouKnow. All rights reserved.</p>
+      </div>
+    </div>
+  </body>
+</html>
