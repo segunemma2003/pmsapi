@@ -9,6 +9,14 @@ import uuid
 
 User = get_user_model()
 
+
+class TrustedNetworkInvitationManager(models.Manager):
+    def get_valid_invitation(self, token):
+        return self.filter(
+            invitation_token=token,
+            status='pending',
+            expires_at__gt=timezone.now()
+        ).first()
 class TrustLevelDefinition(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='trust_levels')
@@ -116,6 +124,7 @@ class TrustedNetworkInvitation(models.Model):
         ('expired', 'Expired'),
     )
     
+    objects = TrustedNetworkInvitationManager()
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='network_invitations')
     email = models.EmailField(db_index=True)
