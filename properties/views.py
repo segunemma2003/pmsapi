@@ -15,7 +15,8 @@ from .models import Property, PropertyImage
 from .serializers import PropertySerializer, PropertyCreateSerializer
 from .filters import PropertyFilter
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
+from django.utils import timezone
 import uuid
 from django.core.mail import send_mail
 from django.template.loader import render_to_string
