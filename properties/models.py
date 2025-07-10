@@ -129,3 +129,22 @@ class PropertyImage(models.Model):
             models.Index(fields=['property', 'is_primary']),
             models.Index(fields=['order']),
         ]
+        
+        
+class SavedProperty(models.Model):
+    """Model to track properties saved/bookmarked by users"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='saved_properties')
+    property = models.ForeignKey('Property', on_delete=models.CASCADE, related_name='saved_by_users')
+    saved_at = models.DateTimeField(auto_now_add=True)
+    notes = models.TextField(blank=True, null=True)  # Optional notes about why saved
+    
+    class Meta:
+        db_table = 'saved_properties'
+        unique_together = ['user', 'property']  # User can only save a property once
+        indexes = [
+            models.Index(fields=['user', 'saved_at']),
+            models.Index(fields=['property']),
+            models.Index(fields=['saved_at']),
+        ]
+        ordering = ['-saved_at']  # Most recently saved first

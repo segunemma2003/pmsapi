@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Q, Count
 from django.core.cache import cache
-from .models import Property, PropertyImage
+from .models import Property, PropertyImage, SavedProperty
 from .serializers import PropertySerializer, PropertyCreateSerializer
 from .filters import PropertyFilter
 from django.db.models import Q, Count
@@ -270,6 +270,172 @@ class PropertyViewSet(viewsets.ModelViewSet):
         
         return Response(response_data)
     
+    
+    @action(detail=False, methods=['get'])
+    def by_owner(self, request):
+        """Get properties by specific owner"""
+        owner_id = request.GET.get('owner_id')
+        
+        if not owner_id:
+            return Response(
+                {'error': 'owner_id parameter is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if owner exists
+        try:
+            owner = User.objects.get(id=owner_id, user_type='owner')
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'Owner not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Check permissions
+        user = request.user
+        effective_role = user.get_effective_role()
+        
+        # Admins can see all properties
+        if user.user_type == 'admin':
+            properties = Property.objects.filter(
+                owner=owner
+            ).select_related('owner').annotate(
+                booking_count=Count('bookings')
+            ).prefetch_related('images_set')
+        
+        # The owner can see their own properties
+        elif user.id == owner.id:
+            properties = Property.objects.filter(
+                owner=owner
+            ).select_related('owner').annotate(
+                booking_count=Count('bookings')
+            ).prefetch_related('images_set')
+        
+        # Users can see properties if they're in the owner's trust network
+        elif effective_role == 'user':
+            from trust_levels.models import OwnerTrustedNetwork
+            # Check if user has access to this owner's properties
+            has_access = OwnerTrustedNetwork.objects.filter(
+                owner=owner,
+                trusted_user=user,
+                status='active'
+            ).exists()
+            
+            if not has_access:
+                return Response(
+                    {'error': 'You do not have access to this owner\'s properties'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Only show visible and active properties
+            properties = Property.objects.filter(
+                owner=owner,
+                status='active',
+                is_visible=True
+            ).select_related('owner').annotate(
+                booking_count=Count('bookings')
+            ).prefetch_related('images_set')
+        
+        # Other owners acting as owner cannot see other owners' properties
+        else:
+            return Response(
+                {'error': 'You do not have permission to view these properties'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Apply additional filters if provided
+        status_filter = request.GET.get('status')
+        if status_filter:
+            properties = properties.filter(status=status_filter)
+        
+        is_featured = request.GET.get('is_featured')
+        if is_featured is not None:
+            properties = properties.filter(is_featured=is_featured.lower() == 'true')
+        
+        # Order by created date
+        properties = properties.order_by('-created_at')
+        
+        # Paginate results
+        page = self.paginate_queryset(properties)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            response_data = self.get_paginated_response(serializer.data)
+            
+            # Add owner info to response
+            response_data.data['owner'] = {
+                'id': str(owner.id),
+                'full_name': owner.full_name,
+                'email': owner.email,
+                'properties_count': properties.count()
+            }
+            
+            return response_data
+        
+        serializer = self.get_serializer(properties, many=True)
+        return Response({
+            'owner': {
+                'id': str(owner.id),
+                'full_name': owner.full_name,
+                'email': owner.email,
+                'properties_count': properties.count()
+            },
+            'properties': serializer.data
+        })
+    
+    @action(detail=False, methods=['get'])
+    def owner_list(self, request):
+        """Get list of property owners (for filtering)"""
+        user = request.user
+        effective_role = user.get_effective_role()
+        
+        if user.user_type == 'admin':
+            # Admins can see all owners with properties
+            owners = User.objects.filter(
+                user_type='owner',
+                properties__isnull=False
+            ).distinct().annotate(
+                property_count=Count('properties')
+            ).values(
+                'id', 'full_name', 'email', 'property_count'
+            )
+        
+        elif effective_role == 'user':
+            # Users can see owners they're connected to
+            from trust_levels.models import OwnerTrustedNetwork
+            connected_owners = OwnerTrustedNetwork.objects.filter(
+                trusted_user=user,
+                status='active'
+            ).values_list('owner_id', flat=True)
+            
+            owners = User.objects.filter(
+                id__in=connected_owners,
+                properties__isnull=False
+            ).distinct().annotate(
+                property_count=Count('properties', filter=Q(
+                    properties__status='active',
+                    properties__is_visible=True
+                ))
+            ).values(
+                'id', 'full_name', 'email', 'property_count'
+            )
+        
+        elif user.user_type == 'owner':
+            # Owners only see themselves
+            owners = User.objects.filter(
+                id=user.id
+            ).annotate(
+                property_count=Count('properties')
+            ).values(
+                'id', 'full_name', 'email', 'property_count'
+            )
+        
+        else:
+            return Response({'owners': []})
+        
+        return Response({
+            'count': len(owners),
+            'owners': list(owners)
+        })
     @action(detail=True, methods=['get'])
     def ical_export(self, request, pk=None):
         """Export property calendar as iCal"""
@@ -582,3 +748,169 @@ class PropertyViewSet(viewsets.ModelViewSet):
         }
         
         return Response(stats)
+    
+    @action(detail=True, methods=['post'])
+    def save_property(self, request, pk=None):
+        """Save/bookmark a property for later reference"""
+        property_obj = self.get_object()
+        
+        # Check if user is trying to save their own property
+        if property_obj.owner == request.user:
+            return Response(
+                {'error': 'You cannot save your own property'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if user has access to this property (through trust network)
+        user = request.user
+        if user.get_effective_role() == 'user':
+            from trust_levels.models import OwnerTrustedNetwork
+            has_access = OwnerTrustedNetwork.objects.filter(
+                owner=property_obj.owner,
+                trusted_user=user,
+                status='active'
+            ).exists()
+            
+            if not has_access:
+                return Response(
+                    {'error': 'You must have access through trust network to save this property'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        
+        # Check if already saved
+        saved_property, created = SavedProperty.objects.get_or_create(
+            user=request.user,
+            property=property_obj,
+            defaults={'notes': request.data.get('notes', '')}
+        )
+        
+        if not created:
+            return Response(
+                {'error': 'Property is already saved'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Clear cache for user's accessible properties
+        cache.delete(f'user_accessible_properties_{request.user.id}')
+        
+        return Response({
+            'message': 'Property saved successfully',
+            'saved': True,
+            'saved_property': {
+                'id': str(saved_property.id),
+                'property_id': str(property_obj.id),
+                'saved_at': saved_property.saved_at,
+                'notes': saved_property.notes
+            }
+        }, status=status.HTTP_201_CREATED)
+    
+    @action(detail=True, methods=['delete'])
+    def unsave_property(self, request, pk=None):
+        """Remove property from saved list"""
+        property_obj = self.get_object()
+        
+        try:
+            saved_property = SavedProperty.objects.get(
+                user=request.user,
+                property=property_obj
+            )
+            saved_property.delete()
+            
+            # Clear cache for user's accessible properties
+            cache.delete(f'user_accessible_properties_{request.user.id}')
+            
+            return Response({
+                'message': 'Property removed from saved list',
+                'property_id': str(property_obj.id)
+            }, status=status.HTTP_200_OK)
+            
+        except SavedProperty.DoesNotExist:
+            return Response(
+                {'error': 'Property is not in your saved list'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    
+    @action(detail=False, methods=['get'])
+    def saved_properties(self, request):
+        """Get all properties saved by the current user"""
+        user = request.user
+        
+        # Get saved properties with filters
+        saved_properties = SavedProperty.objects.filter(
+            user=user
+        ).select_related('property__owner').prefetch_related('property__images_set')
+        
+        # Apply filters
+        city = request.GET.get('city')
+        if city:
+            saved_properties = saved_properties.filter(property__city__icontains=city)
+        
+        min_price = request.GET.get('min_price')
+        if min_price:
+            saved_properties = saved_properties.filter(property__price_per_night__gte=min_price)
+        
+        max_price = request.GET.get('max_price')
+        if max_price:
+            saved_properties = saved_properties.filter(property__price_per_night__lte=max_price)
+        
+        bedrooms = request.GET.get('bedrooms')
+        if bedrooms:
+            saved_properties = saved_properties.filter(property__bedrooms__gte=bedrooms)
+        
+        # Order by most recently saved
+        saved_properties = saved_properties.order_by('-saved_at')
+        
+        # Paginate results
+        page = self.paginate_queryset(saved_properties)
+        
+        # Prepare response data
+        def format_saved_property(saved_property):
+            property_obj = saved_property.property
+            
+            # Get property images
+            images = []
+            for image in property_obj.images_set.all():
+                images.append({
+                    'id': str(image.id),
+                    'image_url': image.image_url,
+                    'is_primary': image.is_primary,
+                    'order': image.order
+                })
+            
+            return {
+                'id': str(property_obj.id),
+                'title': property_obj.title,
+                'description': property_obj.description,
+                'city': property_obj.city,
+                'display_price': float(property_obj.get_display_price(user)),
+                'bedrooms': property_obj.bedrooms,
+                'bathrooms': property_obj.bathrooms,
+                'max_guests': property_obj.max_guests,
+                'images': images,
+                'owner_name': property_obj.owner.full_name,
+                'is_saved': True,
+                'saved_info': {
+                    'saved_id': str(saved_property.id),
+                    'saved_at': saved_property.saved_at,
+                    'notes': saved_property.notes
+                }
+            }
+        
+        if page is not None:
+            results = [format_saved_property(sp) for sp in page]
+            response_data = self.get_paginated_response(results)
+            
+            # Add total count to response
+            response_data.data['total_saved'] = saved_properties.count()
+            
+            return response_data
+        
+        results = [format_saved_property(sp) for sp in saved_properties]
+        
+        return Response({
+            'total_saved': len(results),
+            'count': len(results),
+            'page': 1,
+            'total_pages': 1,
+            'results': results
+        })

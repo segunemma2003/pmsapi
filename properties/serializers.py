@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import Property, PropertyImage
+from .models import Property, PropertyImage, SavedProperty
 
 User = get_user_model()
 
@@ -15,6 +15,7 @@ class PropertySerializer(serializers.ModelSerializer):
     display_price = serializers.SerializerMethodField()
     booking_count = serializers.SerializerMethodField()
     images = PropertyImageSerializer(source='images_set', many=True, read_only=True)
+    is_saved = serializers.SerializerMethodField()
     
     class Meta:
         model = Property
@@ -23,10 +24,10 @@ class PropertySerializer(serializers.ModelSerializer):
             'country', 'display_price', 'bedrooms', 'bathrooms', 'max_guests', 
             'images', 'amenities', 'status', 'is_featured', 'is_visible',
             'owner', 'owner_name', 'booking_count', 'beds24_property_id', 
-            'ical_sync_enabled', 'created_at', 'updated_at'
+            'ical_sync_enabled', 'created_at', 'updated_at', 'is_saved'
         ]
         read_only_fields = [
-            'id', 'owner', 'beds24_property_id', 'created_at', 'updated_at'
+            'id', 'owner', 'beds24_property_id', 'created_at', 'updated_at', 'is_saved'
         ]
     
     def get_display_price(self, obj):
@@ -38,6 +39,16 @@ class PropertySerializer(serializers.ModelSerializer):
     
     def get_booking_count(self, obj):
         return getattr(obj, 'booking_count', 0)
+    
+    def get_is_saved(self, obj):
+        """Check if current user has saved this property"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            return SavedProperty.objects.filter(
+                user=request.user,
+                property=obj
+            ).exists()
+        return False
 
 
 class PropertyCreateSerializer(serializers.ModelSerializer):
@@ -74,3 +85,12 @@ class PropertyCreateSerializer(serializers.ModelSerializer):
         
         return property_obj
     
+
+class SavedPropertySerializer(serializers.ModelSerializer):
+    """Serializer for saved properties with property details"""
+    property = PropertySerializer(read_only=True)
+    
+    class Meta:
+        model = SavedProperty
+        fields = ['id', 'property', 'saved_at', 'notes']
+        read_only_fields = ['id', 'saved_at']
