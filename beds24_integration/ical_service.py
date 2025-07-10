@@ -1,10 +1,12 @@
+from typing import Dict, List, Optional, Tuple
 from icalendar import Calendar, Event, vDatetime
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from django.utils import timezone
 from django.conf import settings
 import pytz
 import requests
 import uuid
+import icalendar
 
 class ICalService:
     """Enhanced iCal service for calendar management"""
@@ -72,6 +74,98 @@ BOOKING ID: {booking.id}
             cal.add_component(event)
         
         return cal.to_ical().decode('utf-8')
+    
+    @staticmethod
+    def parse_ical_from_url(url: str) -> Optional[icalendar.Calendar]:
+        """Fetch and parse iCal from URL"""
+        try:
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            
+            cal = icalendar.Calendar.from_ical(response.content)
+            return cal
+            
+        except requests.RequestException as e:
+            print(f"Error fetching iCal from {url}: {str(e)}")
+            return None
+        except Exception as e:
+            print(f"Error parsing iCal: {str(e)}")
+            return None
+        
+    @staticmethod
+    def check_availability_from_url(url: str, check_in: date, check_out: date) -> Dict:
+        """Check if dates are available based on external iCal"""
+        try:
+            cal = ICalService.parse_ical_from_url(url)
+            if not cal:
+                # If we can't fetch/parse, assume available
+                return {'available': True, 'error': 'Could not fetch calendar'}
+            
+            # Check for conflicting events
+            for component in cal.walk():
+                if component.name == "VEVENT":
+                    event_start = component.get('dtstart')
+                    event_end = component.get('dtend')
+                    
+                    if not event_start or not event_end:
+                        continue
+                    
+                    # Convert to date objects
+                    if hasattr(event_start.dt, 'date'):
+                        event_start_date = event_start.dt.date()
+                    else:
+                        event_start_date = event_start.dt
+                    
+                    if hasattr(event_end.dt, 'date'):
+                        event_end_date = event_end.dt.date()
+                    else:
+                        event_end_date = event_end.dt
+                    
+                    # Check for overlap
+                    if event_start_date < check_out and event_end_date > check_in:
+                        return {
+                            'available': False,
+                            'reason': 'Dates conflict with existing booking',
+                            'conflicting_dates': {
+                                'start': event_start_date.isoformat(),
+                                'end': event_end_date.isoformat()
+                            }
+                        }
+            
+            return {'available': True}
+            
+        except Exception as e:
+            # On any error, assume available (as requested)
+            print(f"Error checking availability: {str(e)}")
+            return {'available': True, 'error': str(e)}
+        
+    
+    @staticmethod
+    def extract_blocked_dates_from_ical(cal: icalendar.Calendar) -> List[Tuple[date, date]]:
+        """Extract all blocked date ranges from iCal"""
+        blocked_dates = []
+        
+        for component in cal.walk():
+            if component.name == "VEVENT":
+                event_start = component.get('dtstart')
+                event_end = component.get('dtend')
+                
+                if event_start and event_end:
+                    # Convert to date objects
+                    if hasattr(event_start.dt, 'date'):
+                        start_date = event_start.dt.date()
+                    else:
+                        start_date = event_start.dt
+                    
+                    if hasattr(event_end.dt, 'date'):
+                        end_date = event_end.dt.date()
+                    else:
+                        end_date = event_end.dt
+                    
+                    blocked_dates.append((start_date, end_date))
+        
+        return blocked_dates
+    
     
     @staticmethod
     def parse_external_calendar(ical_data):
@@ -175,22 +269,72 @@ BOOKING ID: {booking.id}
         return cal.to_ical().decode('utf-8')
     
     @staticmethod
-    def validate_ical_url(url):
-        """Validate if URL returns valid iCal data"""
+    def validate_ical_url(url: str) -> Dict:
+        """Validate an iCal URL and return basic info"""
         try:
-            result = ICalService.fetch_external_calendar(url, timeout=10)
-            if not result['success']:
-                return {'valid': False, 'error': result['error']}
+            cal = ICalService.parse_ical_from_url(url)
+            if not cal:
+                return {'valid': False, 'error': 'Could not fetch or parse calendar'}
             
-            parse_result = ICalService.parse_external_calendar(result['ical_data'])
-            if not parse_result['success']:
-                return {'valid': False, 'error': parse_result['error']}
+            # Count events
+            event_count = sum(1 for c in cal.walk() if c.name == "VEVENT")
+            
+            # Get calendar name
+            cal_name = cal.get('x-wr-calname', 'Unknown Calendar')
             
             return {
-                'valid': True, 
-                'events_found': parse_result['count'],
-                'content_type': result['content_type']
+                'valid': True,
+                'calendar_name': str(cal_name),
+                'events_found': event_count
             }
             
         except Exception as e:
             return {'valid': False, 'error': str(e)}
+    @staticmethod
+    def sync_external_calendar(property_obj, calendar_url: str) -> Dict:
+        """Sync bookings from external calendar"""
+        try:
+            cal = ICalService.parse_ical_from_url(calendar_url)
+            if not cal:
+                return {'success': False, 'error': 'Could not fetch calendar'}
+            
+            blocked_dates = ICalService.extract_blocked_dates_from_ical(cal)
+            
+            # Create external bookings for blocked dates
+            from bookings.models import Booking
+            created_count = 0
+            
+            for start_date, end_date in blocked_dates:
+                # Check if booking already exists for these dates
+                existing = Booking.objects.filter(
+                    property=property_obj,
+                    check_in_date=start_date,
+                    check_out_date=end_date,
+                    booking_metadata__contains={'source': 'external_ical'}
+                ).exists()
+                
+                if not existing:
+                    # Create external booking
+                    Booking.objects.create(
+                        property=property_obj,
+                        guest=property_obj.owner,  # Owner as placeholder guest
+                        check_in_date=start_date,
+                        check_out_date=end_date,
+                        status='confirmed',
+                        total_amount=0,  # External bookings have no payment
+                        booking_metadata={
+                            'source': 'external_ical',
+                            'calendar_url': calendar_url,
+                            'synced_at': timezone.now().isoformat()
+                        }
+                    )
+                    created_count += 1
+            
+            return {
+                'success': True,
+                'blocked_dates_found': len(blocked_dates),
+                'bookings_created': created_count
+            }
+            
+        except Exception as e:
+            return {'success': False, 'error': str(e)}

@@ -1,0 +1,30 @@
+Calendar Shared With You
+========================
+
+Hi there,
+
+{{ owner_name }} has shared the availability calendar for their property with you!
+
+Property: {{ property_title }}
+Location: {{ property_address }}
+{% if include_pricing %}Pricing information: Included{% endif %}
+
+{% if personal_message %}
+Message from {{ owner_name }}:
+{{ personal_message }}
+{% endif %}
+
+View the property's availability for the next {{ date_range_days }} days:
+{{ calendar_url }}
+
+What you can see:
+- Available dates for booking
+- Currently blocked or booked dates
+{% if include_pricing %}- Pricing information per night{% endif %}
+- Property details and amenities
+
+This calendar link will remain active for 30 days.
+
+---
+This email was sent by OnlyIfYouKnow on behalf of {{ owner_name }}.
+© 2025 OnlyIfYouKnow. All rights reserved.

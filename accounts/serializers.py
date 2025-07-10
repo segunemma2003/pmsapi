@@ -5,35 +5,60 @@ from django.utils import timezone
 
 User = get_user_model()
 
+class TrustConnectionSerializer(serializers.Serializer):
+    """Serializer for trust network connections"""
+    owner_id = serializers.CharField(source='owner__id')
+    owner_name = serializers.CharField(source='owner__full_name')
+    owner_email = serializers.CharField(source='owner__email')
+    trust_level = serializers.IntegerField()
+    discount_percentage = serializers.DecimalField(max_digits=5, decimal_places=2)
+    connected_since = serializers.DateTimeField(source='added_at')
+
 class UserSerializer(serializers.ModelSerializer):
     trust_network_size = serializers.SerializerMethodField()
+    trust_connections = serializers.SerializerMethodField()
+    effective_role = serializers.SerializerMethodField()
+    can_switch_role = serializers.SerializerMethodField()
     
     class Meta:
         model = User
         fields = [
             'id', 'email', 'full_name', 'phone', 'avatar_url',
-            'user_type', 'status', 'onboarding_completed', 
-            'email_verified', 'last_active_at', 'trust_network_size',
-            'beds24_subaccount_id', 'date_joined'
+            'user_type', 'current_role', 'effective_role', 'about_me',
+            'status', 'onboarding_completed', 'email_verified', 
+            'last_active_at', 'trust_network_size', 'trust_connections',
+            'beds24_subaccount_id', 'date_joined', 'can_switch_role'
         ]
-        read_only_fields = ['id', 'beds24_subaccount_id', 'date_joined']
+        read_only_fields = ['id', 'beds24_subaccount_id', 'date_joined', 
+                           'effective_role', 'trust_connections', 'can_switch_role']
     
     def get_trust_network_size(self, obj):
         return obj.get_trust_network_size()
+    
+    def get_trust_connections(self, obj):
+        """Get all trust network connections for this user"""
+        connections = obj.get_trust_connections()
+        return TrustConnectionSerializer(connections, many=True).data
+    
+    def get_effective_role(self, obj):
+        return obj.get_effective_role()
+    
+    def get_can_switch_role(self, obj):
+        return obj.can_switch_role()
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, validators=[validate_password])
     password_confirm = serializers.CharField(write_only=True)
-    invitation_token = serializers.CharField(write_only=True, required=True)  # ← NOW REQUIRED!
+    invitation_token = serializers.CharField(write_only=True, required=True)
     
     class Meta:
         model = User
         fields = [
             'email', 'password', 'password_confirm', 'full_name', 
-            'phone', 'user_type', 'invitation_token'
+            'phone', 'user_type', 'invitation_token', 'about_me'
         ]
         extra_kwargs = {
-            'user_type': {'read_only': True}  # ← User type comes from token, not user input
+            'user_type': {'read_only': True}  # User type comes from token
         }
     
     def validate_invitation_token(self, value):
@@ -82,6 +107,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         # Get user type from token, not from user input
         token_obj = self._token_obj
         validated_data['user_type'] = token_obj.user_type
+        validated_data['current_role'] = token_obj.user_type  # Set initial current role
         validated_data['status'] = 'pending'  # Will be activated after token processing
         
         # Create user
@@ -96,3 +122,27 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         result = process_invitation_acceptance.delay(invitation_token, str(user.id))
         
         return user
+
+class UserProfileUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for updating user profile including avatar"""
+    class Meta:
+        model = User
+        fields = ['full_name', 'phone', 'about_me', 'avatar_url']
+    
+    def validate_avatar_url(self, value):
+        """Validate avatar URL is from our upload service"""
+        if value and not value.startswith(('http://', 'https://')):
+            raise serializers.ValidationError("Invalid avatar URL")
+        return value
+
+class RoleSwitchSerializer(serializers.Serializer):
+    """Serializer for role switching"""
+    new_role = serializers.ChoiceField(choices=['owner', 'user'])
+    
+    def validate(self, attrs):
+        user = self.context['request'].user
+        if not user.can_switch_role():
+            raise serializers.ValidationError(
+                "You don't have permission to switch roles"
+            )
+        return attrs

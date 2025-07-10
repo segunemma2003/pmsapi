@@ -2,6 +2,7 @@ import uuid
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.core.cache import cache
+from django.utils import timezone
 
 class User(AbstractUser):
     USER_TYPES = (
@@ -23,6 +24,11 @@ class User(AbstractUser):
     phone = models.CharField(max_length=20, blank=True)
     avatar_url = models.URLField(blank=True)
     user_type = models.CharField(max_length=10, choices=USER_TYPES, default='user')
+    
+    # New field for role switching
+    current_role = models.CharField(max_length=10, choices=USER_TYPES, default='user')
+    about_me = models.TextField(blank=True, max_length=1000)
+    
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     onboarding_completed = models.BooleanField(default=False)
     email_verified = models.BooleanField(default=False)
@@ -39,6 +45,7 @@ class User(AbstractUser):
         indexes = [
             models.Index(fields=['email']),
             models.Index(fields=['user_type']),
+            models.Index(fields=['current_role']),
             models.Index(fields=['status']),
             models.Index(fields=['beds24_subaccount_id']),
         ]
@@ -46,6 +53,7 @@ class User(AbstractUser):
     def save(self, *args, **kwargs):
         # Clear user cache on save
         cache.delete(f'user_profile_{self.id}')
+        cache.delete(f'user_trust_connections_{self.id}')
         super().save(*args, **kwargs)
     
     def get_trust_network_size(self):
@@ -61,6 +69,64 @@ class User(AbstractUser):
                 cache.set(cache_key, size, timeout=300)  # 5 minutes
             return size
         return 0
+    
+    def get_trust_connections(self):
+        """Get all trust network connections for this user"""
+        cache_key = f'user_trust_connections_{self.id}'
+        connections = cache.get(cache_key)
+        
+        if connections is None:
+            from trust_levels.models import OwnerTrustedNetwork
+            connections = list(OwnerTrustedNetwork.objects.filter(
+                trusted_user=self,
+                status='active'
+            ).select_related('owner').values(
+                'owner__id',
+                'owner__full_name',
+                'owner__email',
+                'trust_level',
+                'discount_percentage',
+                'added_at'
+            ))
+            cache.set(cache_key, connections, timeout=300)  # 5 minutes
+        
+        return connections
+    
+    def can_switch_role(self):
+        """Check if user can switch between owner and user roles"""
+        return self.user_type == 'owner' and self.status == 'active'
+    
+    def switch_role(self, new_role):
+        """Switch current role between owner and user"""
+        if not self.can_switch_role():
+            return False
+        
+        if new_role not in ['owner', 'user']:
+            return False
+        
+        # Can only switch to roles at or below their user_type
+        if new_role == 'owner' and self.user_type != 'owner':
+            return False
+        
+        self.current_role = new_role
+        self.save()
+        return True
+    
+    def get_effective_role(self):
+        """Get the effective role for permissions checking"""
+        # If current_role is not set, use user_type
+        if not self.current_role:
+            return self.user_type
+        
+        # Ensure current_role doesn't exceed user_type permissions
+        if self.user_type == 'user':
+            return 'user'
+        elif self.user_type == 'owner' and self.current_role in ['owner', 'user']:
+            return self.current_role
+        elif self.user_type == 'admin':
+            return 'admin'  # Admins always act as admins
+        
+        return self.user_type
     
     def complete_onboarding_with_token(self, invitation_token):
         """Complete onboarding process with invitation token"""

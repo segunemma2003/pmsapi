@@ -15,7 +15,11 @@ from .models import Property, PropertyImage
 from .serializers import PropertySerializer, PropertyCreateSerializer
 from .filters import PropertyFilter
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+import uuid
+from django.core.mail import send_mail
+from django.template.loader import render_to_string
+from django.conf import settings
 
 class PropertyViewSet(viewsets.ModelViewSet):
     serializer_class = PropertySerializer
@@ -24,8 +28,9 @@ class PropertyViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
-        """Optimized queryset with proper access control"""
+        """Optimized queryset with proper access control based on effective role"""
         user = self.request.user
+        effective_role = user.get_effective_role()
         
         # Base queryset with optimizations
         base_queryset = Property.objects.select_related('owner').annotate(
@@ -35,11 +40,11 @@ class PropertyViewSet(viewsets.ModelViewSet):
         if user.user_type == 'admin':
             # Admins see all properties
             return base_queryset.all()
-        elif user.user_type == 'owner':
-            # Owners see their own properties
+        elif effective_role == 'owner':
+            # When acting as owner, see only their own properties
             return base_queryset.filter(owner=user)
         else:
-            # Users see visible properties from owners who invited them
+            # When acting as user, see only properties from owners in their trust network
             cache_key = f'user_accessible_properties_{user.id}'
             property_ids = cache.get(cache_key)
             
@@ -97,6 +102,173 @@ class PropertyViewSet(viewsets.ModelViewSet):
             'message': f'Property visibility updated to {property_obj.is_visible}',
             'is_visible': property_obj.is_visible
         })
+    
+    @action(detail=True, methods=['post'])
+    def share_calendar(self, request, pk=None):
+        """Share property availability calendar via email"""
+        property_obj = self.get_object()
+        
+        # Only property owner can share calendar when acting as owner
+        if property_obj.owner != request.user or request.user.get_effective_role() != 'owner':
+            return Response(
+                {'error': 'Only property owner can share calendar when acting as owner'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Get request data
+        recipient_emails = request.data.get('emails', [])
+        message = request.data.get('message', '')
+        include_pricing = request.data.get('include_pricing', False)
+        date_range_days = request.data.get('date_range_days', 365)  # Default 1 year
+        
+        if not recipient_emails:
+            return Response(
+                {'error': 'At least one recipient email is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Generate unique calendar share token
+        share_token = str(uuid.uuid4())
+        
+        # Store share token in cache with property info
+        cache_key = f'calendar_share_{share_token}'
+        cache.set(cache_key, {
+            'property_id': str(property_obj.id),
+            'include_pricing': include_pricing,
+            'shared_by': str(request.user.id),
+            'shared_at': datetime.now().isoformat()
+        }, timeout=86400 * 30)  # 30 days
+        
+        # Generate calendar share URL
+        calendar_url = f"{settings.FRONTEND_URL}/calendar/view/{share_token}"
+        
+        # Send emails to recipients
+        context = {
+            'property_title': property_obj.title,
+            'property_address': property_obj.address,
+            'owner_name': request.user.full_name,
+            'personal_message': message,
+            'calendar_url': calendar_url,
+            'include_pricing': include_pricing,
+            'date_range_days': date_range_days
+        }
+        
+        html_content = render_to_string('emails/share_calendar.html', context)
+        text_content = render_to_string('emails/share_calendar.txt', context)
+        
+        sent_count = 0
+        failed_emails = []
+        
+        for email in recipient_emails:
+            try:
+                send_mail(
+                    subject=f"📅 {request.user.full_name} shared {property_obj.title}'s availability with you",
+                    message=text_content,
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[email],
+                    html_message=html_content,
+                    fail_silently=False
+                )
+                sent_count += 1
+            except Exception as e:
+                failed_emails.append(email)
+        
+        # Log activity
+        from analytics.models import ActivityLog
+        ActivityLog.objects.create(
+            action='calendar_shared',
+            user=request.user,
+            resource_type='property',
+            resource_id=str(property_obj.id),
+            details={
+                'recipients': recipient_emails,
+                'sent_count': sent_count,
+                'failed_count': len(failed_emails),
+                'include_pricing': include_pricing
+            }
+        )
+        
+        return Response({
+            'message': f'Calendar shared with {sent_count} recipients',
+            'sent_count': sent_count,
+            'failed_emails': failed_emails,
+            'share_url': calendar_url
+        })
+    
+    @action(detail=False, methods=['get'])
+    def view_shared_calendar(self, request):
+        """View shared calendar (no authentication required)"""
+        share_token = request.GET.get('token')
+        
+        if not share_token:
+            return Response(
+                {'error': 'Share token is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get share info from cache
+        cache_key = f'calendar_share_{share_token}'
+        share_info = cache.get(cache_key)
+        
+        if not share_info:
+            return Response(
+                {'error': 'Invalid or expired share token'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get property
+        try:
+            property_obj = Property.objects.get(id=share_info['property_id'])
+        except Property.DoesNotExist:
+            return Response(
+                {'error': 'Property not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get availability for next year
+        start_date = datetime.now().date()
+        end_date = start_date + timedelta(days=365)
+        
+        # Get bookings
+        from bookings.models import Booking
+        bookings = Booking.objects.filter(
+            property=property_obj,
+            status__in=['confirmed', 'pending'],
+            check_out_date__gte=start_date,
+            check_in_date__lte=end_date
+        ).values('check_in_date', 'check_out_date', 'status')
+        
+        # Format availability data
+        blocked_dates = []
+        for booking in bookings:
+            blocked_dates.append({
+                'start': booking['check_in_date'].isoformat(),
+                'end': booking['check_out_date'].isoformat(),
+                'status': booking['status']
+            })
+        
+        response_data = {
+            'property': {
+                'title': property_obj.title,
+                'address': property_obj.address,
+                'city': property_obj.city,
+                'max_guests': property_obj.max_guests,
+                'bedrooms': property_obj.bedrooms,
+                'bathrooms': property_obj.bathrooms
+            },
+            'blocked_dates': blocked_dates,
+            'date_range': {
+                'start': start_date.isoformat(),
+                'end': end_date.isoformat()
+            }
+        }
+        
+        # Include pricing if allowed
+        if share_info.get('include_pricing'):
+            response_data['property']['price_per_night'] = float(property_obj.price_per_night)
+        
+        return Response(response_data)
+    
     @action(detail=True, methods=['get'])
     def ical_export(self, request, pk=None):
         """Export property calendar as iCal"""
@@ -310,20 +482,46 @@ class PropertyViewSet(viewsets.ModelViewSet):
                 'reason': f'Property accommodates maximum {property_obj.max_guests} guests'
             })
         
-        # Check for conflicting bookings
+        # Check for conflicting bookings (including ongoing bookings)
         from bookings.models import Booking
+        today = timezone.now().date()
+        
         conflicting_bookings = Booking.objects.filter(
             property=property_obj,
-            status__in=['confirmed', 'pending'],
             check_in_date__lt=check_out,
             check_out_date__gt=check_in
+        ).filter(
+            Q(status='confirmed') |
+            Q(status='confirmed', check_in_date__lte=today, check_out_date__gt=today)
         )
         
         if conflicting_bookings.exists():
             return Response({
                 'available': False,
-                'reason': 'Property is not available for selected dates'
+                'reason': 'Property is not available for selected dates',
+                'conflicting_dates': list(conflicting_bookings.values(
+                    'check_in_date', 'check_out_date'
+                ))
             })
+        
+        # Check external calendars if configured
+        if property_obj.ical_external_calendars:
+            for calendar in property_obj.ical_external_calendars:
+                if calendar.get('active', True):
+                    try:
+                        result = ICalService.check_availability_from_url(
+                            calendar['url'],
+                            check_in,
+                            check_out
+                        )
+                        if not result['available']:
+                            return Response({
+                                'available': False,
+                                'reason': f"Conflict with {calendar.get('name', 'external calendar')}"
+                            })
+                    except:
+                        # If external check fails, continue
+                        pass
         
         # Calculate pricing
         nights = (check_out - check_in).days
@@ -333,10 +531,10 @@ class PropertyViewSet(viewsets.ModelViewSet):
         return Response({
             'available': True,
             'nights': nights,
-            'base_price': base_price,
-            'discounted_price': discounted_price,
-            'savings': base_price - discounted_price,
-            'price_per_night': property_obj.get_display_price(request.user)
+            'base_price': float(base_price),
+            'discounted_price': float(discounted_price),
+            'savings': float(base_price - discounted_price),
+            'price_per_night': float(property_obj.get_display_price(request.user))
         })
 
     @action(detail=True, methods=['get'])

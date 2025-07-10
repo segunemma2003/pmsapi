@@ -14,18 +14,19 @@ class BookingViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         user = self.request.user
+        effective_role = user.get_effective_role()
         
         if user.user_type == 'admin':
             return Booking.objects.select_related(
                 'property', 'guest'
             ).prefetch_related('property__owner').all().order_by('-requested_at')
-        elif user.user_type == 'owner':
-            # Owner sees booking requests for their properties
+        elif effective_role == 'owner':
+            # When acting as owner, see booking requests for their properties
             return Booking.objects.select_related(
                 'property', 'guest'
             ).filter(property__owner=user).order_by('-requested_at')
         else:
-            # User sees their own booking requests
+            # When acting as user, see their own booking requests
             return Booking.objects.select_related(
                 'property'
             ).filter(guest=user).order_by('-requested_at')
@@ -45,13 +46,36 @@ class BookingViewSet(viewsets.ModelViewSet):
         check_in = serializer.validated_data['check_in_date']
         check_out = serializer.validated_data['check_out_date']
         
+        
+        if property_obj.owner == request.user:
+            return Response({
+                'error': 'You cannot book your own property'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if request.user.get_effective_role() == 'user':
+            from trust_levels.models import OwnerTrustedNetwork
+            has_access = OwnerTrustedNetwork.objects.filter(
+                owner=property_obj.owner,
+                trusted_user=request.user,
+                status='active'
+            ).exists()
+            
+            if not has_access:
+                return Response({
+                    'error': 'You do not have access to book this property'
+                }, status=status.HTTP_403_FORBIDDEN)
+                
         # Check for availability conflicts (only confirmed bookings block dates)
+        today = timezone.now().date()
         conflicting_bookings = Booking.objects.filter(
             property=property_obj,
-            status__in=['confirmed'],  # Only confirmed bookings block dates
             check_in_date__lt=check_out,
             check_out_date__gt=check_in
+        ).filter(
+            Q(status='confirmed') |  # Confirmed bookings
+            Q(status='confirmed', check_in_date__lte=today, check_out_date__gt=today)  # Ongoing bookings
         )
+        
         
         if conflicting_bookings.exists():
             return Response({
@@ -59,6 +83,17 @@ class BookingViewSet(viewsets.ModelViewSet):
                 'conflicting_bookings': conflicting_bookings.count()
             }, status=status.HTTP_400_BAD_REQUEST)
         
+        
+        if property_obj.ical_external_calendars:
+            availability_result = self._check_ical_availability(
+                property_obj, check_in, check_out
+            )
+            if not availability_result['available']:
+                return Response({
+                    'error': 'Property is not available on external calendar',
+                    'details': availability_result.get('reason', 'External calendar conflict')
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
         # Check beds24 availability if property is synced
         if property_obj.beds24_property_id:
             availability_result = self._check_beds24_availability(
@@ -99,6 +134,38 @@ class BookingViewSet(viewsets.ModelViewSet):
             'booking': BookingSerializer(booking, context={'request': request}).data,
             'status': 'pending_approval'
         }, status=status.HTTP_201_CREATED)
+        
+        
+    def _check_ical_availability(self, property_obj, check_in, check_out):
+        """Check availability against external iCal calendars"""
+        try:
+            from beds24_integration.ical_service import ICalService
+            
+            # Check each external calendar
+            for calendar in property_obj.ical_external_calendars:
+                if calendar.get('active', True):
+                    try:
+                        result = ICalService.check_availability_from_url(
+                            calendar['url'],
+                            check_in,
+                            check_out
+                        )
+                        if not result['available']:
+                            return {
+                                'available': False,
+                                'reason': f"Conflict with {calendar.get('name', 'external calendar')}"
+                            }
+                    except Exception as e:
+                        # If iCal check fails, return empty/allow booking
+                        print(f"iCal availability check failed: {str(e)}")
+                        continue
+            
+            return {'available': True}
+            
+        except Exception as e:
+            # On any error, return empty/allow booking as requested
+            print(f"iCal availability check error: {str(e)}")
+            return {'available': True}
     
     @action(detail=True, methods=['post'])
     def approve_booking(self, request, pk=None):
@@ -106,7 +173,7 @@ class BookingViewSet(viewsets.ModelViewSet):
         booking = self.get_object()
         
         # Security check - only property owner can approve
-        if booking.property.owner != request.user:
+        if booking.property.owner != request.user or request.user.get_effective_role() != 'owner':
             return Response(
                 {'error': 'Only property owner can approve bookings'},
                 status=status.HTTP_403_FORBIDDEN
@@ -119,11 +186,14 @@ class BookingViewSet(viewsets.ModelViewSet):
             )
         
         # Final availability check before approval
+        today = timezone.now().date()
         conflicting_bookings = Booking.objects.filter(
             property=booking.property,
-            status='confirmed',
             check_in_date__lt=booking.check_out_date,
             check_out_date__gt=booking.check_in_date
+        ).filter(
+            Q(status='confirmed') |
+            Q(status='confirmed', check_in_date__lte=today, check_out_date__gt=today)
         ).exclude(id=booking.id)
         
         if conflicting_bookings.exists():
@@ -172,7 +242,7 @@ class BookingViewSet(viewsets.ModelViewSet):
         booking = self.get_object()
         
         # Security check
-        if booking.property.owner != request.user:
+        if booking.property.owner != request.user or request.user.get_effective_role() != 'owner':
             return Response(
                 {'error': 'Only property owner can reject bookings'},
                 status=status.HTTP_403_FORBIDDEN
@@ -219,7 +289,7 @@ class BookingViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def pending_requests(self, request):
         """Get pending booking requests for owner"""
-        if request.user.user_type != 'owner':
+        if request.user.get_effective_role() != 'owner':
             return Response(
                 {'error': 'Only owners can view pending requests'},
                 status=status.HTTP_403_FORBIDDEN

@@ -3,7 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
-from .serializers import UserSerializer, UserRegistrationSerializer
+from .serializers import RoleSwitchSerializer, UserProfileUpdateSerializer, UserSerializer, UserRegistrationSerializer
 from .tasks import create_owner_defaults
 from django.contrib.auth.password_validation import validate_password
 from django.core.cache import cache
@@ -21,15 +21,19 @@ class UserViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         user = self.request.user
+        effective_role = user.get_effective_role()
+        
         if user.user_type == 'admin':
             return User.objects.all().order_by('-date_joined')
-        elif user.user_type == 'owner':
-            # Owners can see their trusted network
+        elif effective_role == 'owner':
+            # Owners can see users in their trusted network
             from trust_levels.models import OwnerTrustedNetwork
             trusted_user_ids = OwnerTrustedNetwork.objects.filter(
                 owner=user, status='active'
             ).values_list('trusted_user_id', flat=True)
-            return User.objects.filter(id__in=trusted_user_ids)
+            return User.objects.filter(
+                Q(id__in=trusted_user_ids) | Q(id=user.id)
+            )
         else:
             # Users can only see themselves
             return User.objects.filter(id=user.id)
@@ -46,7 +50,8 @@ class UserViewSet(viewsets.ModelViewSet):
             return Response({
                 'message': 'Registration successful. Please check your email for confirmation.',
                 'user_id': str(user.id),
-                'user_type': user.user_type
+                'user_type': user.user_type,
+                'current_role': user.current_role
             }, status=status.HTTP_201_CREATED)
             
         except serializers.ValidationError as e:
@@ -71,25 +76,56 @@ class UserViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['patch'])
     def update_profile(self, request):
-        """Update current user profile"""
-        serializer = self.get_serializer(
+        """Update current user profile including avatar and about me"""
+        serializer = UserProfileUpdateSerializer(
             request.user, data=request.data, partial=True
         )
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        return Response(serializer.data)
+        
+        # Return full user data
+        return Response(
+            UserSerializer(request.user).data
+        )
+        
+        
+    @action(detail=False, methods=['post'])
+    def switch_role(self, request):
+        """Switch between owner and user roles"""
+        serializer = RoleSwitchSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        
+        new_role = serializer.validated_data['new_role']
+        
+        if request.user.switch_role(new_role):
+            # Clear relevant caches
+            cache.delete(f'user_profile_{request.user.id}')
+            cache.delete(f'user_accessible_properties_{request.user.id}')
+            
+            return Response({
+                'message': f'Successfully switched to {new_role} role',
+                'current_role': request.user.current_role,
+                'user_type': request.user.user_type
+            })
+        else:
+            return Response(
+                {'error': 'Failed to switch role'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
     
     @action(detail=False, methods=['get'])
     def search(self, request):
-        """Search users"""
+        """Search users - filtered by effective role"""
         query = request.GET.get('search', '')
         user_type = request.GET.get('user_type')
         
         if not query:
             return Response([])
         
-        # Only allow searching if user is admin or owner
-        if request.user.user_type not in ['admin', 'owner']:
+        effective_role = request.user.get_effective_role()
+        
+        # Only allow searching if user is admin or acting as owner
+        if request.user.user_type != 'admin' and effective_role != 'owner':
             return Response(
                 {'error': 'Permission denied'},
                 status=status.HTTP_403_FORBIDDEN
@@ -107,11 +143,137 @@ class UserViewSet(viewsets.ModelViewSet):
         if user_type:
             queryset = queryset.filter(user_type=user_type)
         
+        # If acting as owner, only show users they could invite
+        if effective_role == 'owner' and request.user.user_type != 'admin':
+            # Exclude users already in their network
+            from trust_levels.models import OwnerTrustedNetwork
+            existing_network = OwnerTrustedNetwork.objects.filter(
+                owner=request.user,
+                status='active'
+            ).values_list('trusted_user_id', flat=True)
+            queryset = queryset.exclude(id__in=existing_network)
+        
         # Limit results
         queryset = queryset[:20]
         
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+    
+
+    @action(detail=False, methods=['get'])
+    def trust_connections(self, request):
+        """Get detailed trust network connections"""
+        connections = request.user.get_trust_connections()
+        
+        # Enhance with owner details
+        enhanced_connections = []
+        for conn in connections:
+            enhanced_conn = dict(conn)
+            # Get trust level name
+            try:
+                from trust_levels.models import TrustLevelDefinition
+                trust_def = TrustLevelDefinition.objects.get(
+                    owner_id=conn['owner__id'],
+                    level=conn['trust_level']
+                )
+                enhanced_conn['trust_level_name'] = trust_def.name
+                enhanced_conn['trust_level_color'] = trust_def.color
+            except:
+                enhanced_conn['trust_level_name'] = f"Level {conn['trust_level']}"
+                enhanced_conn['trust_level_color'] = '#3B82F6'
+            
+            enhanced_connections.append(enhanced_conn)
+        
+        return Response({
+            'count': len(enhanced_connections),
+            'connections': enhanced_connections
+        })
+
+
+    @action(detail=False, methods=['get'])
+    def available_properties_count(self, request):
+        """Get count of properties user has access to"""
+        if request.user.get_effective_role() == 'owner':
+            # Owners see their own properties count
+            from properties.models import Property
+            count = Property.objects.filter(
+                owner=request.user,
+                status='active'
+            ).count()
+        else:
+            # Users see properties from their trust network
+            from trust_levels.models import OwnerTrustedNetwork
+            from properties.models import Property
+            
+            trusted_owners = OwnerTrustedNetwork.objects.filter(
+                trusted_user=request.user,
+                status='active'
+            ).values_list('owner_id', flat=True)
+            
+            count = Property.objects.filter(
+                owner__in=trusted_owners,
+                status='active',
+                is_visible=True
+            ).count()
+        
+        return Response({
+            'available_properties': count,
+            'current_role': request.user.get_effective_role()
+        })
+        
+        
+    @action(detail=False, methods=['post'])
+    def upload_avatar(self, request):
+        """Handle avatar upload"""
+        if 'avatar' not in request.FILES:
+            return Response(
+                {'error': 'No avatar file provided'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        avatar_file = request.FILES['avatar']
+        
+        # Validate file type
+        allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+        if avatar_file.content_type not in allowed_types:
+            return Response(
+                {'error': 'Invalid file type. Allowed types: JPEG, PNG, GIF, WebP'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate file size (max 5MB)
+        if avatar_file.size > 5 * 1024 * 1024:
+            return Response(
+                {'error': 'File too large. Maximum size is 5MB'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Use the upload service
+        from upload.services import UploadService
+        upload_service = UploadService()
+        
+        try:
+            # Upload file
+            file_url = upload_service.upload_file(
+                avatar_file,
+                folder=f'avatars/{request.user.id}',
+                allowed_types=allowed_types
+            )
+            
+            # Update user avatar URL
+            request.user.avatar_url = file_url
+            request.user.save()
+            
+            return Response({
+                'message': 'Avatar uploaded successfully',
+                'avatar_url': file_url
+            })
+            
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to upload avatar: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
     @action(detail=False, methods=['post'])
     def change_password(self, request):
