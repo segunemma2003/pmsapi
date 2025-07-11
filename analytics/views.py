@@ -26,6 +26,27 @@ class AnalyticsViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = AdminAnalyticsSerializer
     permission_classes = [permissions.IsAuthenticated]
     
+    
+    @action(detail=False, methods=['get'], url_path='owner_stats')
+    def owner_stats(self, request):
+        """Admin fetches metrics for a specific owner"""
+        if request.user.user_type != 'admin':
+            return Response({'error': 'Admin access required'}, status=403)
+
+        owner_id = request.query_params.get('owner_id')
+        if not owner_id:
+            return Response({'error': 'owner_id is required'}, status=400)
+
+        try:
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            owner = User.objects.get(id=owner_id, user_type='owner')
+        except User.DoesNotExist:
+            return Response({'error': 'Owner not found'}, status=404)
+
+        return self._get_owner_metrics(owner)
+    
+    
     @action(detail=False, methods=['get'])
     def dashboard_metrics(self, request):
         """Get dashboard metrics for different user types"""
