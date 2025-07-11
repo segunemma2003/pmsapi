@@ -119,8 +119,8 @@ class UserViewSet(viewsets.ModelViewSet):
         query = request.GET.get('search', '')
         user_type = request.GET.get('user_type')
         
-        if not query:
-            return Response([])
+        # if not query:
+        #     return Response([])
         
         effective_role = request.user.get_effective_role()
         
@@ -133,11 +133,12 @@ class UserViewSet(viewsets.ModelViewSet):
         
         queryset = User.objects.filter(status='active')
         
-        # Text search
-        queryset = queryset.filter(
-            Q(full_name__icontains=query) |
-            Q(email__icontains=query)
-        )
+        if query:
+            # Text search
+            queryset = queryset.filter(
+                Q(full_name__icontains=query) |
+                Q(email__icontains=query)
+            )
         
         # Filter by user type
         if user_type:
