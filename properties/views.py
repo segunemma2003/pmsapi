@@ -21,6 +21,7 @@ import uuid
 from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.conf import settings
+from accounts.models import User
 
 class PropertyViewSet(viewsets.ModelViewSet):
     serializer_class = PropertySerializer
