@@ -215,6 +215,27 @@ class InvitationViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
     
+    @action(detail=False, methods=['get'], permission_classes=[permissions.IsAuthenticated])
+    def pending_for_user(self, request):
+        """Get pending general invitations for the current user"""
+        user_email = request.user.email
+        
+        # Find all pending invitations for this user's email
+        pending_invitations = Invitation.objects.filter(
+            email=user_email,
+            status='pending',
+            expires_at__gt=timezone.now()
+        ).select_related('invited_by').order_by('-created_at')
+        
+        # Serialize the invitations
+        serializer = self.get_serializer(pending_invitations, many=True)
+        
+        return Response({
+            'count': pending_invitations.count(),
+            'invitations': serializer.data
+        })
+        
+        
     @action(detail=False, methods=['post'], permission_classes=[permissions.AllowAny])
     def decline_invitation(self, request):
         """Decline invitation (for existing users)"""

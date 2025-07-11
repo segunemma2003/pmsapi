@@ -286,7 +286,45 @@ class TrustedNetworkInvitationViewSet(viewsets.ModelViewSet):
                     {'error': f'Failed to create account: {str(e)}'},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
-    
+    @action(detail=False, methods=['get'], permission_classes=[permissions.IsAuthenticated])
+    def pending_for_user(self, request):
+        """Get pending trust network invitations for the current user"""
+        user_email = request.user.email
+        
+        # Find all pending trust network invitations for this user's email
+        pending_invitations = TrustedNetworkInvitation.objects.filter(
+            email=user_email,
+            status='pending',
+            expires_at__gt=timezone.now()
+        ).select_related('owner').order_by('-created_at')
+        
+        # Serialize the invitations
+        serializer = self.get_serializer(pending_invitations, many=True)
+        
+        # Enhance with trust level names
+        enhanced_invitations = []
+        for invitation_data in serializer.data:
+            enhanced_data = dict(invitation_data)
+            
+            # Get trust level name
+            try:
+                trust_def = TrustLevelDefinition.objects.get(
+                    owner_id=invitation_data['owner'],
+                    level=invitation_data['trust_level']
+                )
+                enhanced_data['trust_level_name'] = trust_def.name
+                enhanced_data['trust_level_color'] = trust_def.color
+            except TrustLevelDefinition.DoesNotExist:
+                enhanced_data['trust_level_name'] = f"Level {invitation_data['trust_level']}"
+                enhanced_data['trust_level_color'] = '#3B82F6'
+            
+            enhanced_invitations.append(enhanced_data)
+        
+        return Response({
+            'count': pending_invitations.count(),
+            'invitations': enhanced_invitations
+        })
+        
     @action(detail=False, methods=['post'], permission_classes=[permissions.AllowAny])
     def decline_invitation(self, request):
         """Decline trusted network invitation"""
