@@ -54,6 +54,7 @@ class User(AbstractUser):
         # Clear user cache on save
         cache.delete(f'user_profile_{self.id}')
         cache.delete(f'user_trust_connections_{self.id}')
+        self.clear_user_caches()
         super().save(*args, **kwargs)
     
     def get_trust_network_size(self):
@@ -94,40 +95,143 @@ class User(AbstractUser):
     
     def can_switch_role(self):
         """Check if user can switch between owner and user roles"""
-        return self.user_type == 'owner' and self.status == 'active'
+        if self.status != 'active':
+            return False
+        
+        if self.user_type == 'owner':
+            # Owner can only switch roles if they are under another owner's network
+            return self.is_under_owner_network()
+        
+        elif self.user_type == 'user':
+            # User can only switch roles if they were invited by admin to become owner and accepted
+            return self.has_accepted_admin_owner_invitation()
+        
+        return False
     
+    def is_under_owner_network(self):
+        """Check if this owner is part of another owner's trust network"""
+        if self.user_type != 'owner':
+            return False
+        
+        cache_key = f'user_under_network_{self.id}'
+        result = cache.get(cache_key)
+        
+        if result is None:
+            from trust_levels.models import OwnerTrustedNetwork
+            # Check if this owner is a trusted user in another owner's network
+            result = OwnerTrustedNetwork.objects.filter(
+                trusted_user=self,
+                status='active',
+                owner__user_type='owner'
+            ).exists()
+            cache.set(cache_key, result, timeout=300)  # 5 minutes
+        
+        return result
+
+
+    def has_accepted_admin_owner_invitation(self):
+        """Check if user has accepted an admin invitation to become owner"""
+        if self.user_type != 'user':
+            return False
+        
+        cache_key = f'user_admin_invitation_{self.id}'
+        result = cache.get(cache_key)
+        
+        if result is None:
+            from invitations.models import Invitation
+            # Check if user has accepted an owner invitation from an admin
+            result = Invitation.objects.filter(
+                email=self.email,
+                invitation_type='owner',
+                status='accepted',
+                invited_by__user_type='admin',
+                accepted_by=self
+            ).exists()
+            cache.set(cache_key, result, timeout=300)  # 5 minutes
+        
+        return result
+
     def switch_role(self, new_role):
-        """Switch current role between owner and user"""
+        """Switch current role between owner and user with enhanced validation"""
         if not self.can_switch_role():
             return False
         
         if new_role not in ['owner', 'user']:
             return False
         
-        # Can only switch to roles at or below their user_type
-        if new_role == 'owner' and self.user_type != 'owner':
-            return False
+        # Enhanced role switching logic
+        if self.user_type == 'owner':
+            # Owner can switch between owner and user roles if under network
+            if new_role in ['owner', 'user'] and self.is_under_owner_network():
+                self.current_role = new_role
+                self.save()
+                # Clear relevant caches
+                cache.delete(f'user_effective_role_{self.id}')
+                return True
         
-        self.current_role = new_role
-        self.save()
-        return True
+        elif self.user_type == 'user':
+            # User can become owner if they have accepted admin invitation
+            if new_role == 'owner' and self.has_accepted_admin_owner_invitation():
+                self.current_role = new_role
+                self.save()
+                # Clear relevant caches
+                cache.delete(f'user_effective_role_{self.id}')
+                return True
+            # User can always switch back to user role
+            elif new_role == 'user':
+                self.current_role = new_role
+                self.save()
+                # Clear relevant caches
+                cache.delete(f'user_effective_role_{self.id}')
+                return True
+        
+        return False
     
     def get_effective_role(self):
-        """Get the effective role for permissions checking"""
-        # If current_role is not set, use user_type
-        if not self.current_role:
-            return self.user_type
+        """Get the effective role for permissions checking with caching"""
+        cache_key = f'user_effective_role_{self.id}'
+        effective_role = cache.get(cache_key)
         
-        # Ensure current_role doesn't exceed user_type permissions
-        if self.user_type == 'user':
-            return 'user'
-        elif self.user_type == 'owner' and self.current_role in ['owner', 'user']:
-            return self.current_role
-        elif self.user_type == 'admin':
-            return 'admin'  # Admins always act as admins
+        if effective_role is None:
+            # If current_role is not set, use user_type
+            if not self.current_role:
+                effective_role = self.user_type
+            else:
+                # Ensure current_role doesn't exceed user_type permissions
+                if self.user_type == 'user':
+                    # Users can be 'user' or 'owner' if they have admin invitation
+                    if self.current_role == 'owner' and self.has_accepted_admin_owner_invitation():
+                        effective_role = 'owner'
+                    else:
+                        effective_role = 'user'
+                elif self.user_type == 'owner':
+                    # Owners can switch between owner and user if under network
+                    if self.current_role in ['owner', 'user'] and self.is_under_owner_network():
+                        effective_role = self.current_role
+                    else:
+                        effective_role = 'owner'  # Default to owner if not under network
+                elif self.user_type == 'admin':
+                    effective_role = 'admin'  # Admins always act as admins
+                else:
+                    effective_role = self.user_type
+            
+            cache.set(cache_key, effective_role, timeout=300)  # 5 minutes
         
-        return self.user_type
+        return effective_role
     
+    
+    def clear_user_caches(self):
+        """Clear all cached data for this user"""
+        cache_keys = [
+            f'user_profile_{self.id}',
+            f'user_trust_connections_{self.id}',
+            f'trust_network_size_{self.id}',
+            f'user_under_network_{self.id}',
+            f'user_admin_invitation_{self.id}',
+            f'user_effective_role_{self.id}',
+        ]
+        cache.delete_many(cache_keys)
+        
     def complete_onboarding_with_token(self, invitation_token):
         """Complete onboarding process with invitation token"""
         try:
