@@ -21,7 +21,9 @@ class AnalyticsThrottle(UserRateThrottle):
     rate = '100/hour'
     
 class AnalyticsViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = AdminAnalytics.objects.none()
     throttle_classes = [AnalyticsThrottle]
+    serializer_class = AdminAnalyticsSerializer
     permission_classes = [permissions.IsAuthenticated]
     
     @action(detail=False, methods=['get'])
