@@ -72,7 +72,7 @@ class AnalyticsViewSet(viewsets.ReadOnlyModelViewSet):
             User = get_user_model()
             
             metrics = {
-                'total_users': User.objects.count(),
+                'total_users': User.objects.filter(user_type="user").count(),
                 'total_owners': User.objects.filter(user_type='owner').count(),
                 'total_properties': Property.objects.count(),
                 'active_properties': Property.objects.filter(status='active').count(),
