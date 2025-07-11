@@ -180,6 +180,7 @@ class InvitationViewSet(viewsets.ModelViewSet):
                         user_type=invitation.invitation_type,
                         status='active',
                         email_verified=True,
+                        current_role=invitation.invitation_type,
                         password=user_data['password']
                     )
                     
