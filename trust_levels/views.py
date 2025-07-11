@@ -113,7 +113,17 @@ class TrustedNetworkInvitationViewSet(viewsets.ModelViewSet):
                 'error': 'Invalid or expired invitation token'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        return Response({
+        existing_user = User.objects.filter(email=invitation.email).first()
+        
+        already_in_network = False
+        if existing_user:
+            already_in_network = OwnerTrustedNetwork.objects.filter(
+                owner=invitation.owner,
+                trusted_user=existing_user,
+                status='active'
+            ).exists()
+        
+        response_data = {
             'valid': True,
             'invitation': {
                 'email': invitation.email,
@@ -123,8 +133,16 @@ class TrustedNetworkInvitationViewSet(viewsets.ModelViewSet):
                 'discount_percentage': float(invitation.discount_percentage),
                 'expires_at': invitation.expires_at.isoformat(),
                 'personal_message': invitation.personal_message
+            },
+            'user_status': {
+                'exists': bool(existing_user),
+                'current_type': existing_user.user_type if existing_user else None,
+                'needs_login': bool(existing_user),
+                'needs_registration': not bool(existing_user),
+                'already_in_network': already_in_network
             }
-        })
+        }
+        return response_data
     
     @action(detail=False, methods=['post'], permission_classes=[permissions.AllowAny])
     def accept_invitation(self, request):

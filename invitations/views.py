@@ -260,6 +260,9 @@ class InvitationViewSet(viewsets.ModelViewSet):
                 'valid': False,
                 'error': 'Invalid or expired invitation token'
             }, status=status.HTTP_400_BAD_REQUEST)
+            
+            
+        existing_user = User.objects.filter(email=invitation.email).first()
         
         return Response({
             'valid': True,
@@ -270,6 +273,13 @@ class InvitationViewSet(viewsets.ModelViewSet):
                 'inviter_name': invitation.invited_by.full_name,
                 'expires_at': invitation.expires_at.isoformat(),
                 'personal_message': invitation.personal_message
+            },
+            'user_status': {
+                'exists': bool(existing_user),
+                'current_type': existing_user.user_type if existing_user else None,
+                'needs_login': bool(existing_user),
+                'needs_registration': not bool(existing_user),
+                'type_change_required': bool(existing_user) and existing_user.user_type != invitation.invitation_type
             }
         })
     
