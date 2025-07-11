@@ -11,6 +11,7 @@ from .serializers import (
     TrustedNetworkInvitationSerializer, TrustedNetworkInvitationCreateSerializer
 )
 
+import uuid
 
 User = get_user_model()
 
@@ -98,7 +99,7 @@ class TrustedNetworkInvitationViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], permission_classes=[permissions.AllowAny])
     def validate_token(self, request):
         """Validate network invitation token"""
-        token = request.data.get('token')
+        token = request.data.get('token') or request.query_params.get('token')
         
         if not token:
             return Response(
@@ -106,6 +107,15 @@ class TrustedNetworkInvitationViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
+        try:
+            # This will raise ValueError if the UUID is malformed
+            uuid.UUID(token)
+        except ValueError:
+            return Response(
+                {'error': 'Invalid token format'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    
         invitation = TrustedNetworkInvitation.objects.get_valid_invitation(token)
         if not invitation:
             return Response({
@@ -142,7 +152,7 @@ class TrustedNetworkInvitationViewSet(viewsets.ModelViewSet):
                 'already_in_network': already_in_network
             }
         }
-        return response_data
+        return Response(response_data)
     
     @action(detail=False, methods=['post'], permission_classes=[permissions.AllowAny])
     def accept_invitation(self, request):
