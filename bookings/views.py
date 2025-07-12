@@ -15,21 +15,26 @@ class BookingViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         effective_role = user.get_effective_role()
+        property_id = self.request.query_params.get('property')
         
         if user.user_type == 'admin':
-            return Booking.objects.select_related(
+            queryset = Booking.objects.select_related(
                 'property', 'guest'
             ).prefetch_related('property__owner').all().order_by('-requested_at')
         elif effective_role == 'owner':
             # When acting as owner, see booking requests for their properties
-            return Booking.objects.select_related(
+            queryset = Booking.objects.select_related(
                 'property', 'guest'
             ).filter(property__owner=user).order_by('-requested_at')
         else:
             # When acting as user, see their own booking requests
-            return Booking.objects.select_related(
+            queryset = Booking.objects.select_related(
                 'property'
-            ).filter(guest=user).order_by('-requested_at')
+            ).filter(guest=user)
+            
+        if property_id:
+            queryset = queryset.filter(property__id=property_id)       
+        return queryset.order_by('-requested_at')
     
     def get_serializer_class(self):
         if self.action == 'create':
