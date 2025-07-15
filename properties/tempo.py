@@ -4,33 +4,26 @@ from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Q, Count
 from django.core.cache import cache
+from .models import Property, PropertyImage, SavedProperty
+from .serializers import PropertySerializer, PropertyCreateSerializer
+from .filters import PropertyFilter
+from django.db.models import Q, Count
+from django.core.cache import cache
 from django.http import HttpResponse
-from drf_yasg.utils import swagger_auto_schema
-from drf_yasg import openapi
+from beds24_integration.ical_service import ICalService
+from .models import Property, PropertyImage
+from .serializers import PropertySerializer, PropertyCreateSerializer
+from .filters import PropertyFilter
+import json
 from datetime import datetime, timedelta
 from django.utils import timezone
 import uuid
 from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.conf import settings
-import json
-
-# Import your existing models and components
-from .models import Property, PropertyImage, SavedProperty
 from accounts.models import User
-from beds24_integration.ical_service import ICalService
-
-# Import serializers - keep your original one for compatibility
-from .serializers import PropertySerializer, PropertyCreateSerializer
-from .filters import PropertyFilter
-
 
 class PropertyViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet for managing properties with comprehensive functionality.
-    
-    Maintains all original functionality while supporting enhanced features.
-    """
     serializer_class = PropertySerializer
     filter_backends = [DjangoFilterBackend]
     filterset_class = PropertyFilter
@@ -47,11 +40,13 @@ class PropertyViewSet(viewsets.ModelViewSet):
         ).prefetch_related('images_set')
         
         if user.user_type == 'admin':
+            # Admins see all properties
             return base_queryset.all()
         elif effective_role == 'owner':
+            # When acting as owner, see only their own properties
             return base_queryset.filter(owner=user)
         else:
-            # Users see properties from their trust network
+            # When acting as user, see only properties from owners in their trust network
             cache_key = f'user_accessible_properties_{user.id}'
             property_ids = cache.get(cache_key)
             
@@ -73,77 +68,10 @@ class PropertyViewSet(viewsets.ModelViewSet):
             return base_queryset.filter(id__in=property_ids)
     
     def get_serializer_class(self):
-        """Return appropriate serializer based on action"""
         if self.action == 'create':
             return PropertyCreateSerializer
         return PropertySerializer
     
-    @swagger_auto_schema(
-        operation_description="List all properties with filtering and search",
-        manual_parameters=[
-            openapi.Parameter('search', openapi.IN_QUERY, description="Search in title, description, city", type=openapi.TYPE_STRING),
-            openapi.Parameter('city', openapi.IN_QUERY, description="Filter by city", type=openapi.TYPE_STRING),
-            openapi.Parameter('min_price', openapi.IN_QUERY, description="Minimum price per night", type=openapi.TYPE_NUMBER),
-            openapi.Parameter('max_price', openapi.IN_QUERY, description="Maximum price per night", type=openapi.TYPE_NUMBER),
-            openapi.Parameter('bedrooms', openapi.IN_QUERY, description="Minimum bedrooms", type=openapi.TYPE_INTEGER),
-            openapi.Parameter('max_guests', openapi.IN_QUERY, description="Minimum guest capacity", type=openapi.TYPE_INTEGER),
-        ]
-    )
-    def list(self, request, *args, **kwargs):
-        """List properties with advanced filtering"""
-        return super().list(request, *args, **kwargs)
-    
-    @swagger_auto_schema(
-        operation_description="Create a new property",
-        request_body=PropertyCreateSerializer,
-        responses={201: PropertySerializer}
-    )
-    def create(self, request, *args, **kwargs):
-        """Create property"""
-        return super().create(request, *args, **kwargs)
-    
-    @swagger_auto_schema(
-        operation_description="Get detailed property information",
-        responses={200: PropertySerializer}
-    )
-    def retrieve(self, request, *args, **kwargs):
-        """Get property details"""
-        return super().retrieve(request, *args, **kwargs)
-    
-    @swagger_auto_schema(
-        operation_description="Update property information",
-        request_body=PropertySerializer,
-        responses={200: PropertySerializer}
-    )
-    def update(self, request, *args, **kwargs):
-        """Update property"""
-        return super().update(request, *args, **kwargs)
-    
-    @swagger_auto_schema(
-        operation_description="Partially update property information",
-        request_body=PropertySerializer,
-        responses={200: PropertySerializer}
-    )
-    def partial_update(self, request, *args, **kwargs):
-        """Partially update property"""
-        return super().partial_update(request, *args, **kwargs)
-    
-    @swagger_auto_schema(
-        operation_description="Toggle property visibility for guests",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                'is_visible': openapi.Schema(type=openapi.TYPE_BOOLEAN, description="Set visibility")
-            }
-        ),
-        responses={200: openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                'message': openapi.Schema(type=openapi.TYPE_STRING),
-                'is_visible': openapi.Schema(type=openapi.TYPE_BOOLEAN)
-            }
-        )}
-    )
     @action(detail=True, methods=['patch'])
     def toggle_visibility(self, request, pk=None):
         """Toggle property visibility (owner only)"""
@@ -157,6 +85,7 @@ class PropertyViewSet(viewsets.ModelViewSet):
         
         is_visible = request.data.get('is_visible')
         if is_visible is None:
+            # Toggle current visibility
             property_obj.is_visible = not property_obj.is_visible
         else:
             property_obj.is_visible = bool(is_visible)
@@ -176,28 +105,6 @@ class PropertyViewSet(viewsets.ModelViewSet):
             'is_visible': property_obj.is_visible
         })
     
-    @swagger_auto_schema(
-        operation_description="Share property availability calendar via email",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            required=['emails'],
-            properties={
-                'emails': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Schema(type=openapi.TYPE_STRING)),
-                'message': openapi.Schema(type=openapi.TYPE_STRING),
-                'include_pricing': openapi.Schema(type=openapi.TYPE_BOOLEAN),
-                'date_range_days': openapi.Schema(type=openapi.TYPE_INTEGER, default=365)
-            }
-        ),
-        responses={200: openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                'message': openapi.Schema(type=openapi.TYPE_STRING),
-                'sent_count': openapi.Schema(type=openapi.TYPE_INTEGER),
-                'failed_emails': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Schema(type=openapi.TYPE_STRING)),
-                'share_url': openapi.Schema(type=openapi.TYPE_STRING)
-            }
-        )}
-    )
     @action(detail=True, methods=['post'])
     def share_calendar(self, request, pk=None):
         """Share property availability calendar via email"""
@@ -269,23 +176,19 @@ class PropertyViewSet(viewsets.ModelViewSet):
                 failed_emails.append(email)
         
         # Log activity
-        try:
-            from analytics.models import ActivityLog
-            ActivityLog.objects.create(
-                action='calendar_shared',
-                user=request.user,
-                resource_type='property',
-                resource_id=str(property_obj.id),
-                details={
-                    'recipients': recipient_emails,
-                    'sent_count': sent_count,
-                    'failed_count': len(failed_emails),
-                    'include_pricing': include_pricing
-                }
-            )
-        except ImportError:
-            # Analytics not available, continue without logging
-            pass
+        from analytics.models import ActivityLog
+        ActivityLog.objects.create(
+            action='calendar_shared',
+            user=request.user,
+            resource_type='property',
+            resource_id=str(property_obj.id),
+            details={
+                'recipients': recipient_emails,
+                'sent_count': sent_count,
+                'failed_count': len(failed_emails),
+                'include_pricing': include_pricing
+            }
+        )
         
         return Response({
             'message': f'Calendar shared with {sent_count} recipients',
@@ -294,20 +197,6 @@ class PropertyViewSet(viewsets.ModelViewSet):
             'share_url': calendar_url
         })
     
-    @swagger_auto_schema(
-        operation_description="View shared calendar (no authentication required)",
-        manual_parameters=[
-            openapi.Parameter('token', openapi.IN_QUERY, description="Share token", type=openapi.TYPE_STRING, required=True)
-        ],
-        responses={200: openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                'property': openapi.Schema(type=openapi.TYPE_OBJECT),
-                'blocked_dates': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Schema(type=openapi.TYPE_OBJECT)),
-                'date_range': openapi.Schema(type=openapi.TYPE_OBJECT)
-            }
-        )}
-    )
     @action(detail=False, methods=['get'])
     def view_shared_calendar(self, request):
         """View shared calendar (no authentication required)"""
@@ -343,17 +232,13 @@ class PropertyViewSet(viewsets.ModelViewSet):
         end_date = start_date + timedelta(days=365)
         
         # Get bookings
-        try:
-            from bookings.models import Booking
-            bookings = Booking.objects.filter(
-                property=property_obj,
-                status__in=['confirmed', 'pending'],
-                check_out_date__gte=start_date,
-                check_in_date__lte=end_date
-            ).values('check_in_date', 'check_out_date', 'status')
-        except ImportError:
-            # Bookings model not available
-            bookings = []
+        from bookings.models import Booking
+        bookings = Booking.objects.filter(
+            property=property_obj,
+            status__in=['confirmed', 'pending'],
+            check_out_date__gte=start_date,
+            check_in_date__lte=end_date
+        ).values('check_in_date', 'check_out_date', 'status')
         
         # Format availability data
         blocked_dates = []
@@ -386,21 +271,7 @@ class PropertyViewSet(viewsets.ModelViewSet):
         
         return Response(response_data)
     
-    @swagger_auto_schema(
-        operation_description="Get properties by specific owner",
-        manual_parameters=[
-            openapi.Parameter('owner_id', openapi.IN_QUERY, description="Owner ID", type=openapi.TYPE_STRING, required=True),
-            openapi.Parameter('status', openapi.IN_QUERY, description="Filter by status", type=openapi.TYPE_STRING),
-            openapi.Parameter('is_featured', openapi.IN_QUERY, description="Filter by featured", type=openapi.TYPE_BOOLEAN)
-        ],
-        responses={200: openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                'owner': openapi.Schema(type=openapi.TYPE_OBJECT),
-                'properties': openapi.Schema(type=openapi.TYPE_ARRAY, items=PropertySerializer())
-            }
-        )}
-    )
+    
     @action(detail=False, methods=['get'])
     def by_owner(self, request):
         """Get properties by specific owner"""
@@ -512,16 +383,6 @@ class PropertyViewSet(viewsets.ModelViewSet):
             'properties': serializer.data
         })
     
-    @swagger_auto_schema(
-        operation_description="Get list of property owners (for filtering)",
-        responses={200: openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                'count': openapi.Schema(type=openapi.TYPE_INTEGER),
-                'owners': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Schema(type=openapi.TYPE_OBJECT))
-            }
-        )}
-    )
     @action(detail=False, methods=['get'])
     def owner_list(self, request):
         """Get list of property owners (for filtering)"""
@@ -576,15 +437,6 @@ class PropertyViewSet(viewsets.ModelViewSet):
             'count': len(owners),
             'owners': list(owners)
         })
-    
-    @swagger_auto_schema(
-        operation_description="Export property calendar as iCal",
-        manual_parameters=[
-            openapi.Parameter('start', openapi.IN_QUERY, description="Start date (YYYY-MM-DD)", type=openapi.TYPE_STRING),
-            openapi.Parameter('end', openapi.IN_QUERY, description="End date (YYYY-MM-DD)", type=openapi.TYPE_STRING)
-        ],
-        responses={200: "iCal file download"}
-    )
     @action(detail=True, methods=['get'])
     def ical_export(self, request, pk=None):
         """Export property calendar as iCal"""
@@ -605,38 +457,13 @@ class PropertyViewSet(viewsets.ModelViewSet):
             end_date = start_date + timedelta(days=365)  # 1 year from start
         
         # Generate iCal content
-        try:
-            ical_content = ICalService.generate_property_calendar(property_obj, start_date, end_date)
-        except Exception as e:
-            return Response(
-                {'error': f'Failed to generate calendar: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+        ical_content = ICalService.generate_property_calendar(property_obj, start_date, end_date)
         
         # Return as iCal file
         response = HttpResponse(ical_content, content_type='text/calendar; charset=utf-8')
         response['Content-Disposition'] = f'attachment; filename="{property_obj.title}_calendar.ics"'
         return response
 
-    @swagger_auto_schema(
-        operation_description="Setup iCal sync settings for property",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                'import_enabled': openapi.Schema(type=openapi.TYPE_BOOLEAN),
-                'auto_block': openapi.Schema(type=openapi.TYPE_BOOLEAN),
-                'sync_interval': openapi.Schema(type=openapi.TYPE_INTEGER),
-                'timezone': openapi.Schema(type=openapi.TYPE_STRING)
-            }
-        ),
-        responses={200: openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                'message': openapi.Schema(type=openapi.TYPE_STRING),
-                'settings': openapi.Schema(type=openapi.TYPE_OBJECT)
-            }
-        )}
-    )
     @action(detail=True, methods=['post'])
     def setup_ical_sync(self, request, pk=None):
         """Setup iCal sync settings for property"""
@@ -665,24 +492,6 @@ class PropertyViewSet(viewsets.ModelViewSet):
             }
         })
 
-    @swagger_auto_schema(
-        operation_description="Add external calendar URL for sync",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            required=['calendar_url'],
-            properties={
-                'calendar_url': openapi.Schema(type=openapi.TYPE_STRING),
-                'calendar_name': openapi.Schema(type=openapi.TYPE_STRING)
-            }
-        ),
-        responses={200: openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                'message': openapi.Schema(type=openapi.TYPE_STRING),
-                'calendar': openapi.Schema(type=openapi.TYPE_OBJECT)
-            }
-        )}
-    )
     @action(detail=True, methods=['post'])
     def add_external_calendar(self, request, pk=None):
         """Add external calendar URL for sync"""
@@ -704,16 +513,10 @@ class PropertyViewSet(viewsets.ModelViewSet):
             )
         
         # Validate URL
-        try:
-            validation_result = ICalService.validate_ical_url(calendar_url)
-            if not validation_result['valid']:
-                return Response(
-                    {'error': f"Invalid calendar URL: {validation_result['error']}"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-        except Exception as e:
+        validation_result = ICalService.validate_ical_url(calendar_url)
+        if not validation_result['valid']:
             return Response(
-                {'error': f"Failed to validate calendar URL: {str(e)}"},
+                {'error': f"Invalid calendar URL: {validation_result['error']}"},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
@@ -738,17 +541,6 @@ class PropertyViewSet(viewsets.ModelViewSet):
             }
         })
 
-    @swagger_auto_schema(
-        operation_description="Manually trigger iCal sync",
-        responses={200: openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                'message': openapi.Schema(type=openapi.TYPE_STRING),
-                'sync_status': openapi.Schema(type=openapi.TYPE_STRING),
-                'last_sync': openapi.Schema(type=openapi.TYPE_STRING)
-            }
-        )}
-    )
     @action(detail=True, methods=['post'])
     def sync_ical(self, request, pk=None):
         """Manually trigger iCal sync"""
@@ -762,42 +554,24 @@ class PropertyViewSet(viewsets.ModelViewSet):
         
         # Trigger sync via Celery task if using Beds24
         if property_obj.beds24_property_id:
-            try:
-                from .tasks import auto_sync_all_properties
-                auto_sync_all_properties.delay()
-                
-                property_obj.ical_last_sync = datetime.now()
-                property_obj.ical_sync_status = 'running'
-                property_obj.save()
-                
-                return Response({
-                    'message': 'Calendar sync started',
-                    'sync_status': 'running',
-                    'last_sync': property_obj.ical_last_sync
-                })
-            except ImportError:
-                return Response(
-                    {'error': 'Sync service not available'},
-                    status=status.HTTP_503_SERVICE_UNAVAILABLE
-                )
+            from .tasks import auto_sync_all_properties
+            auto_sync_all_properties.delay()
+            
+            property_obj.ical_last_sync = datetime.now()
+            property_obj.ical_sync_status = 'running'
+            property_obj.save()
+            
+            return Response({
+                'message': 'Calendar sync started',
+                'sync_status': 'running',
+                'last_sync': property_obj.ical_last_sync
+            })
         else:
             return Response(
                 {'error': 'Property not connected to Beds24'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-    @swagger_auto_schema(
-        operation_description="Search properties with advanced filtering",
-        manual_parameters=[
-            openapi.Parameter('search', openapi.IN_QUERY, description="Search query", type=openapi.TYPE_STRING),
-            openapi.Parameter('city', openapi.IN_QUERY, description="City filter", type=openapi.TYPE_STRING),
-            openapi.Parameter('min_price', openapi.IN_QUERY, description="Minimum price", type=openapi.TYPE_NUMBER),
-            openapi.Parameter('max_price', openapi.IN_QUERY, description="Maximum price", type=openapi.TYPE_NUMBER),
-            openapi.Parameter('bedrooms', openapi.IN_QUERY, description="Minimum bedrooms", type=openapi.TYPE_INTEGER),
-            openapi.Parameter('max_guests', openapi.IN_QUERY, description="Minimum guest capacity", type=openapi.TYPE_INTEGER),
-        ],
-        responses={200: PropertySerializer(many=True)}
-    )
     @action(detail=False, methods=['get'])
     def search(self, request):
         """Search properties with filters"""
@@ -840,32 +614,6 @@ class PropertyViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
-    @swagger_auto_schema(
-        operation_description="Check property availability for specific dates",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            required=['check_in_date', 'check_out_date'],
-            properties={
-                'check_in_date': openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_DATE),
-                'check_out_date': openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_DATE),
-                'guests_count': openapi.Schema(type=openapi.TYPE_INTEGER, default=1)
-            }
-        ),
-        responses={
-            200: openapi.Schema(
-                type=openapi.TYPE_OBJECT,
-                properties={
-                    'available': openapi.Schema(type=openapi.TYPE_BOOLEAN),
-                    'nights': openapi.Schema(type=openapi.TYPE_INTEGER),
-                    'base_price': openapi.Schema(type=openapi.TYPE_NUMBER),
-                    'discounted_price': openapi.Schema(type=openapi.TYPE_NUMBER),
-                    'savings': openapi.Schema(type=openapi.TYPE_NUMBER),
-                    'price_per_night': openapi.Schema(type=openapi.TYPE_NUMBER),
-                    'reason': openapi.Schema(type=openapi.TYPE_STRING, description="Reason if not available")
-                }
-            )
-        }
-    )
     @action(detail=True, methods=['post'])
     def check_availability(self, request, pk=None):
         """Check property availability for specific dates"""
@@ -902,34 +650,30 @@ class PropertyViewSet(viewsets.ModelViewSet):
                 'reason': f'Property accommodates maximum {property_obj.max_guests} guests'
             })
         
-        # Check for conflicting bookings
-        try:
-            from bookings.models import Booking
-            today = timezone.now().date()
-            
-            conflicting_bookings = Booking.objects.filter(
-                property=property_obj,
-                check_in_date__lt=check_out,
-                check_out_date__gt=check_in
-            ).filter(
-                Q(status='confirmed') |
-                Q(status='confirmed', check_in_date__lte=today, check_out_date__gt=today)
-            )
-            
-            if conflicting_bookings.exists():
-                return Response({
-                    'available': False,
-                    'reason': 'Property is not available for selected dates',
-                    'conflicting_dates': list(conflicting_bookings.values(
-                        'check_in_date', 'check_out_date'
-                    ))
-                })
-        except ImportError:
-            # Bookings model not available, assume no conflicts
-            pass
+        # Check for conflicting bookings (including ongoing bookings)
+        from bookings.models import Booking
+        today = timezone.now().date()
+        
+        conflicting_bookings = Booking.objects.filter(
+            property=property_obj,
+            check_in_date__lt=check_out,
+            check_out_date__gt=check_in
+        ).filter(
+            Q(status='confirmed') |
+            Q(status='confirmed', check_in_date__lte=today, check_out_date__gt=today)
+        )
+        
+        if conflicting_bookings.exists():
+            return Response({
+                'available': False,
+                'reason': 'Property is not available for selected dates',
+                'conflicting_dates': list(conflicting_bookings.values(
+                    'check_in_date', 'check_out_date'
+                ))
+            })
         
         # Check external calendars if configured
-        if hasattr(property_obj, 'ical_external_calendars') and property_obj.ical_external_calendars:
+        if property_obj.ical_external_calendars:
             for calendar in property_obj.ical_external_calendars:
                 if calendar.get('active', True):
                     try:
@@ -950,15 +694,7 @@ class PropertyViewSet(viewsets.ModelViewSet):
         # Calculate pricing
         nights = (check_out - check_in).days
         base_price = property_obj.price_per_night * nights
-        
-        # Use get_display_price if available, otherwise use base price
-        if hasattr(property_obj, 'get_display_price'):
-            try:
-                discounted_price = property_obj.get_display_price(request.user, nights, guests_count)
-            except:
-                discounted_price = base_price
-        else:
-            discounted_price = base_price
+        discounted_price = property_obj.get_display_price(request.user) * nights
         
         return Response({
             'available': True,
@@ -966,24 +702,9 @@ class PropertyViewSet(viewsets.ModelViewSet):
             'base_price': float(base_price),
             'discounted_price': float(discounted_price),
             'savings': float(base_price - discounted_price),
-            'price_per_night': float(discounted_price / nights if nights > 0 else discounted_price)
+            'price_per_night': float(property_obj.get_display_price(request.user))
         })
 
-    @swagger_auto_schema(
-        operation_description="Get property performance statistics",
-        responses={
-            200: openapi.Schema(
-                type=openapi.TYPE_OBJECT,
-                properties={
-                    'total_bookings': openapi.Schema(type=openapi.TYPE_INTEGER),
-                    'confirmed_bookings': openapi.Schema(type=openapi.TYPE_INTEGER),
-                    'total_revenue': openapi.Schema(type=openapi.TYPE_NUMBER),
-                    'average_booking_value': openapi.Schema(type=openapi.TYPE_NUMBER),
-                    'revenue_last_30_days': openapi.Schema(type=openapi.TYPE_NUMBER),
-                }
-            )
-        }
-    )
     @action(detail=True, methods=['get'])
     def stats(self, request, pk=None):
         """Get property statistics"""
@@ -995,67 +716,40 @@ class PropertyViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        try:
-            from bookings.models import Booking
-            from django.db.models import Sum, Avg, Count
-            from datetime import datetime, timedelta
-            
-            now = datetime.now()
-            last_30_days = now - timedelta(days=30)
-            
-            bookings = Booking.objects.filter(property=property_obj)
-            
-            stats = {
-                'total_bookings': bookings.count(),
-                'confirmed_bookings': bookings.filter(status='confirmed').count(),
-                'completed_bookings': bookings.filter(status='completed').count(),
-                'total_revenue': bookings.filter(status__in=['confirmed', 'completed']).aggregate(
-                    total=Sum('total_amount')
-                )['total'] or 0,
-                'average_booking_value': bookings.filter(status__in=['confirmed', 'completed']).aggregate(
-                    avg=Avg('total_amount')
-                )['avg'] or 0,
-                'bookings_last_30_days': bookings.filter(
-                    created_at__gte=last_30_days
-                ).count(),
-                'revenue_last_30_days': bookings.filter(
-                    created_at__gte=last_30_days,
-                    status__in=['confirmed', 'completed']
-                ).aggregate(total=Sum('total_amount'))['total'] or 0,
-            }
-        except ImportError:
-            # Bookings model not available
-            stats = {
-                'total_bookings': 0,
-                'confirmed_bookings': 0,
-                'completed_bookings': 0,
-                'total_revenue': 0,
-                'average_booking_value': 0,
-                'bookings_last_30_days': 0,
-                'revenue_last_30_days': 0,
-            }
+        from bookings.models import Booking
+        from django.db.models import Sum, Avg, Count
+        from datetime import datetime, timedelta
+        
+        now = datetime.now()
+        last_30_days = now - timedelta(days=30)
+        last_year = now - timedelta(days=365)
+        
+        bookings = Booking.objects.filter(property=property_obj)
+        
+        stats = {
+            'total_bookings': bookings.count(),
+            'confirmed_bookings': bookings.filter(status='confirmed').count(),
+            'completed_bookings': bookings.filter(status='completed').count(),
+            'total_revenue': bookings.filter(status__in=['confirmed', 'completed']).aggregate(
+                total=Sum('total_amount')
+            )['total'] or 0,
+            'average_booking_value': bookings.filter(status__in=['confirmed', 'completed']).aggregate(
+                avg=Avg('total_amount')
+            )['avg'] or 0,
+            'occupancy_rate_30_days': 0,  # Calculate based on available days
+            'bookings_last_30_days': bookings.filter(
+                created_at__gte=last_30_days
+            ).count(),
+            'revenue_last_30_days': bookings.filter(
+                created_at__gte=last_30_days,
+                status__in=['confirmed', 'completed']
+            ).aggregate(total=Sum('total_amount'))['total'] or 0,
+            'average_rating': 0,  # Will be calculated when reviews are implemented
+            'response_rate': 100,  # Placeholder
+        }
         
         return Response(stats)
     
-    @swagger_auto_schema(
-        operation_description="Save/bookmark a property for later reference",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                'notes': openapi.Schema(type=openapi.TYPE_STRING, description="Optional notes")
-            }
-        ),
-        responses={
-            201: openapi.Schema(
-                type=openapi.TYPE_OBJECT,
-                properties={
-                    'message': openapi.Schema(type=openapi.TYPE_STRING),
-                    'saved': openapi.Schema(type=openapi.TYPE_BOOLEAN),
-                    'saved_property': openapi.Schema(type=openapi.TYPE_OBJECT)
-                }
-            )
-        }
-    )
     @action(detail=True, methods=['post'])
     def save_property(self, request, pk=None):
         """Save/bookmark a property for later reference"""
@@ -1071,22 +765,18 @@ class PropertyViewSet(viewsets.ModelViewSet):
         # Check if user has access to this property (through trust network)
         user = request.user
         if user.get_effective_role() == 'user':
-            try:
-                from trust_levels.models import OwnerTrustedNetwork
-                has_access = OwnerTrustedNetwork.objects.filter(
-                    owner=property_obj.owner,
-                    trusted_user=user,
-                    status='active'
-                ).exists()
-                
-                if not has_access:
-                    return Response(
-                        {'error': 'You must have access through trust network to save this property'},
-                        status=status.HTTP_403_FORBIDDEN
-                    )
-            except ImportError:
-                # Trust levels not available, allow saving
-                pass
+            from trust_levels.models import OwnerTrustedNetwork
+            has_access = OwnerTrustedNetwork.objects.filter(
+                owner=property_obj.owner,
+                trusted_user=user,
+                status='active'
+            ).exists()
+            
+            if not has_access:
+                return Response(
+                    {'error': 'You must have access through trust network to save this property'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
         
         # Check if already saved
         saved_property, created = SavedProperty.objects.get_or_create(
@@ -1101,7 +791,7 @@ class PropertyViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Clear cache
+        # Clear cache for user's accessible properties
         cache.delete(f'user_accessible_properties_{request.user.id}')
         
         return Response({
@@ -1115,18 +805,6 @@ class PropertyViewSet(viewsets.ModelViewSet):
             }
         }, status=status.HTTP_201_CREATED)
     
-    @swagger_auto_schema(
-        operation_description="Remove property from saved list",
-        responses={
-            200: openapi.Schema(
-                type=openapi.TYPE_OBJECT,
-                properties={
-                    'message': openapi.Schema(type=openapi.TYPE_STRING),
-                    'property_id': openapi.Schema(type=openapi.TYPE_STRING)
-                }
-            )
-        }
-    )
     @action(detail=True, methods=['delete'])
     def unsave_property(self, request, pk=None):
         """Remove property from saved list"""
@@ -1139,13 +817,13 @@ class PropertyViewSet(viewsets.ModelViewSet):
             )
             saved_property.delete()
             
-            # Clear cache
+            # Clear cache for user's accessible properties
             cache.delete(f'user_accessible_properties_{request.user.id}')
             
             return Response({
                 'message': 'Property removed from saved list',
                 'property_id': str(property_obj.id)
-            })
+            }, status=status.HTTP_200_OK)
             
         except SavedProperty.DoesNotExist:
             return Response(
@@ -1153,15 +831,6 @@ class PropertyViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
     
-    @swagger_auto_schema(
-        operation_description="Get all properties saved by the current user",
-        manual_parameters=[
-            openapi.Parameter('city', openapi.IN_QUERY, description="Filter by city", type=openapi.TYPE_STRING),
-            openapi.Parameter('min_price', openapi.IN_QUERY, description="Minimum price", type=openapi.TYPE_NUMBER),
-            openapi.Parameter('max_price', openapi.IN_QUERY, description="Maximum price", type=openapi.TYPE_NUMBER),
-            openapi.Parameter('bedrooms', openapi.IN_QUERY, description="Minimum bedrooms", type=openapi.TYPE_INTEGER),
-        ]
-    )
     @action(detail=False, methods=['get'])
     def saved_properties(self, request):
         """Get all properties saved by the current user"""
@@ -1209,21 +878,12 @@ class PropertyViewSet(viewsets.ModelViewSet):
                     'order': image.order
                 })
             
-            # Get display price
-            if hasattr(property_obj, 'get_display_price'):
-                try:
-                    display_price = float(property_obj.get_display_price(user))
-                except:
-                    display_price = float(property_obj.price_per_night)
-            else:
-                display_price = float(property_obj.price_per_night)
-            
             return {
                 'id': str(property_obj.id),
                 'title': property_obj.title,
                 'description': property_obj.description,
                 'city': property_obj.city,
-                'display_price': display_price,
+                'display_price': float(property_obj.get_display_price(user)),
                 'bedrooms': property_obj.bedrooms,
                 'bathrooms': property_obj.bathrooms,
                 'max_guests': property_obj.max_guests,
