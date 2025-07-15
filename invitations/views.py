@@ -10,6 +10,9 @@ from .models import Invitation
 from .serializers import InvitationSerializer, InvitationCreateSerializer
 from .tasks import send_invitation_email
 
+# Import JWT token generation
+from rest_framework_simplejwt.tokens import RefreshToken
+
 User = get_user_model()
 
 class InvitationViewSet(viewsets.ModelViewSet):
@@ -49,6 +52,18 @@ class InvitationViewSet(viewsets.ModelViewSet):
             permission_classes = [permissions.AllowAny]
         
         return [permission() for permission in permission_classes]
+    
+    def generate_tokens_for_user(self, user):
+        """Generate JWT tokens for a user"""
+        try:
+            refresh = RefreshToken.for_user(user)
+            return {
+                'refresh': str(refresh),
+                'access': str(refresh.access_token),
+            }
+        except Exception as e:
+            print(f"Error generating tokens: {e}")
+            return None
     
     @transaction.atomic
     def create(self, request, *args, **kwargs):
@@ -177,10 +192,13 @@ class InvitationViewSet(viewsets.ModelViewSet):
                         username=invitation.email,
                         full_name=user_data['full_name'],
                         phone=user_data.get('phone', ''),
+                        about_me=user_data.get('about_me', ''),
                         user_type=invitation.invitation_type,
                         status='active',
                         email_verified=True,
                         current_role=invitation.invitation_type,
+                        onboarding_completed=True,  # Mark as completed since they're accepting invitation
+                        last_active_at=timezone.now(),
                         password=user_data['password']
                     )
                     
@@ -199,15 +217,45 @@ class InvitationViewSet(viewsets.ModelViewSet):
                         from accounts.tasks import create_owner_defaults
                         create_owner_defaults.delay(str(user.id))
                     
+                    # Generate JWT tokens for immediate login
+                    tokens = self.generate_tokens_for_user(user)
+                    
+                    if not tokens:
+                        # Fallback response if token generation fails
+                        return Response({
+                            'message': 'Account created successfully',
+                            'user': {
+                                'id': str(user.id),
+                                'email': user.email,
+                                'full_name': user.full_name,
+                                'user_type': user.user_type,
+                                'current_role': user.current_role
+                            },
+                            'requires_login': True,
+                            'token_error': 'Failed to generate authentication tokens'
+                        }, status=status.HTTP_201_CREATED)
+                    
+                    # Return user data with authentication tokens
                     return Response({
-                        'message': 'Account created successfully',
+                        'message': 'Account created and logged in successfully',
                         'user': {
                             'id': str(user.id),
                             'email': user.email,
                             'full_name': user.full_name,
-                            'user_type': user.user_type
+                            'phone': user.phone,
+                            'about_me': user.about_me,
+                            'user_type': user.user_type,
+                            'current_role': user.current_role,
+                            'status': user.status,
+                            'onboarding_completed': user.onboarding_completed,
+                            'email_verified': user.email_verified
                         },
-                        'requires_login': True
+                        'tokens': {
+                            'access': tokens['access'],
+                            'refresh': tokens['refresh']
+                        },
+                        'requires_login': False,  # No need to login separately
+                        'invitation_type': invitation.invitation_type
                     }, status=status.HTTP_201_CREATED)
                     
             except Exception as e:
@@ -265,6 +313,7 @@ class InvitationViewSet(viewsets.ModelViewSet):
         return Response({
             'message': 'Invitation declined successfully'
         })
+    
     @action(detail=False, methods=['post'], permission_classes=[permissions.AllowAny])
     def validate_token(self, request):
         """Validate invitation token"""
@@ -503,7 +552,3 @@ class InvitationViewSet(viewsets.ModelViewSet):
                 'status': 'error',
                 'message': str(e)
             }, status=503)
-
-    # Add this method to trust_levels/views.py TrustedNetworkInvitationViewSet
-
-    
