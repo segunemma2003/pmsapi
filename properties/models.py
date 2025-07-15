@@ -58,8 +58,18 @@ class Property(models.Model):
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='properties')
     
     # Property Type & Category
-    property_type = models.CharField(max_length=50, choices=PROPERTY_TYPE_CHOICES, db_index=True)
-    place_type = models.CharField(max_length=20, choices=PLACE_TYPE_CHOICES, db_index=True)
+    property_type = models.CharField(
+        max_length=50, 
+        choices=PROPERTY_TYPE_CHOICES, 
+        db_index=True,
+        default='apartment'
+    )
+    place_type = models.CharField(
+        max_length=20, 
+        choices=PLACE_TYPE_CHOICES, 
+        db_index=True,
+        default='entire_place'
+    )
     
     # Title & Description
     title = models.CharField(max_length=255, db_index=True)
@@ -81,8 +91,8 @@ class Property(models.Model):
     # Space Details
     max_guests = models.PositiveIntegerField(db_index=True)
     bedrooms = models.PositiveIntegerField(db_index=True)
-    beds = models.PositiveIntegerField()  # Total number of beds
-    bathrooms = models.DecimalField(max_digits=3, decimal_places=1)  # Allow half bathrooms
+    beds = models.PositiveIntegerField(default=1)  # Total number of beds
+    bathrooms = models.DecimalField(max_digits=3, decimal_places=1, default=1)  # Allow half bathrooms
     square_feet = models.PositiveIntegerField(null=True, blank=True)
     
     # Bed Configuration (JSON field for detailed bed info)
@@ -108,8 +118,6 @@ class Property(models.Model):
     security_deposit = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     extra_guest_fee = models.DecimalField(max_digits=6, decimal_places=2, default=0)  # Per guest beyond base
     extra_guest_threshold = models.PositiveIntegerField(default=0)  # Number of guests before extra fee applies
-    
-    # Note: Weekly/monthly discounts will be handled through a separate promotions system
     
     # Booking Settings
     booking_type = models.CharField(max_length=20, choices=BOOKING_TYPE_CHOICES, default='request')
@@ -147,16 +155,14 @@ class Property(models.Model):
     business_license = models.CharField(max_length=100, blank=True)
     tax_id = models.CharField(max_length=100, blank=True)
     
-    # Note: Performance metrics will be calculated dynamically from booking interactions
-    
-    # Beds24 Integration (existing)
+    # Beds24 Integration
     beds24_property_id = models.CharField(max_length=100, blank=True, unique=True, null=True)
     beds24_sync_status = models.CharField(max_length=50, blank=True)
     beds24_sync_data = models.JSONField(default=dict, blank=True)
     beds24_synced_at = models.DateTimeField(null=True, blank=True)
     beds24_error_message = models.TextField(blank=True)
     
-    # iCal Integration (existing)
+    # iCal Integration
     ical_import_url = models.URLField(blank=True)
     ical_export_url = models.URLField(blank=True)
     ical_sync_enabled = models.BooleanField(default=True)
@@ -201,15 +207,15 @@ class Property(models.Model):
             discount = cache.get(cache_key)
             
             if discount is None:
-                from trust_levels.models import OwnerTrustedNetwork
                 try:
+                    from trust_levels.models import OwnerTrustedNetwork
                     network = OwnerTrustedNetwork.objects.get(
                         owner=self.owner,
                         trusted_user=user,
                         status='active'
                     )
                     discount = float(network.discount_percentage)
-                except OwnerTrustedNetwork.DoesNotExist:
+                except (ImportError, Exception):
                     discount = 0
                 
                 cache.set(cache_key, discount, timeout=300)
@@ -227,9 +233,6 @@ class Property(models.Model):
             extra_guests = guests - self.extra_guest_threshold
             extra_guest_total = self.extra_guest_fee * extra_guests * nights
             base_price += extra_guest_total
-        
-        # Apply weekly/monthly discounts (calculated from promotions system)
-        # This will be handled by a separate promotions/pricing system
         
         return base_price.quantize(Decimal('0.01'))
     
@@ -356,5 +359,9 @@ class SavedProperty(models.Model):
 def auto_queue_beds24_sync(sender, instance, created, **kwargs):
     """Automatically queue new properties for Beds24 sync"""
     if created and instance.status == 'active':
-        from .tasks import enlist_to_beds24
-        enlist_to_beds24.delay(str(instance.id))
+        try:
+            from .tasks import enlist_to_beds24
+            enlist_to_beds24.delay(str(instance.id))
+        except ImportError:
+            # Tasks not available, skip
+            pass

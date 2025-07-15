@@ -1,11 +1,8 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from drf_yasg.utils import swagger_serializer_method
-from drf_yasg import openapi
 from .models import Property, PropertyImage, SavedProperty, PropertyAvailability
 
 User = get_user_model()
-
 
 
 class PropertyImageSerializer(serializers.ModelSerializer):
@@ -49,6 +46,7 @@ class PropertyListSerializer(serializers.ModelSerializer):
     primary_image = serializers.SerializerMethodField()
     is_saved = serializers.SerializerMethodField()
     amenity_count = serializers.SerializerMethodField()
+    response_time = serializers.SerializerMethodField()
     
     class Meta:
         model = Property
@@ -60,7 +58,6 @@ class PropertyListSerializer(serializers.ModelSerializer):
             'response_time', 'created_at'
         ]
     
-    @swagger_serializer_method(serializer_or_field=serializers.DecimalField(max_digits=10, decimal_places=2))
     def get_display_price(self, obj):
         """Get discounted price for the current user"""
         request = self.context.get('request')
@@ -68,7 +65,6 @@ class PropertyListSerializer(serializers.ModelSerializer):
             return obj.get_display_price(request.user)
         return obj.price_per_night
     
-    @swagger_serializer_method(serializer_or_field=serializers.URLField())
     def get_primary_image(self, obj):
         """Get the primary image URL"""
         primary_image = obj.images_set.filter(is_primary=True).first()
@@ -78,7 +74,6 @@ class PropertyListSerializer(serializers.ModelSerializer):
         first_image = obj.images_set.first()
         return first_image.image_url if first_image else None
     
-    @swagger_serializer_method(serializer_or_field=serializers.BooleanField())
     def get_is_saved(self, obj):
         """Check if current user has saved this property"""
         request = self.context.get('request')
@@ -89,95 +84,62 @@ class PropertyListSerializer(serializers.ModelSerializer):
             ).exists()
         return False
     
-    @swagger_serializer_method(serializer_or_field=serializers.IntegerField())
     def get_amenity_count(self, obj):
         """Get total number of amenities"""
         return len(obj.amenities)
     
-    
-class PropertyListSerializer(serializers.ModelSerializer):
-    """
-    Lightweight serializer for property listings (search results, etc.)
-    """
-    owner_name = serializers.CharField(source='owner.full_name', read_only=True)
-    display_price = serializers.SerializerMethodField()
-    primary_image = serializers.SerializerMethodField()
-    is_saved = serializers.SerializerMethodField()
-    amenity_count = serializers.SerializerMethodField()
-    
-    class Meta:
-        model = Property
-        fields = [
-            'id', 'title', 'summary', 'property_type', 'place_type',
-            'city', 'state', 'country', 'display_price', 'bedrooms', 
-            'bathrooms', 'max_guests', 'primary_image', 'is_featured',
-            'owner_name', 'is_saved', 'amenity_count', 'instant_book_enabled',
-            'response_time', 'created_at'
-        ]
-    
-    @swagger_serializer_method(serializer_or_field=serializers.DecimalField(max_digits=10, decimal_places=2))
-    def get_display_price(self, obj):
-        """Get discounted price for the current user"""
-        request = self.context.get('request')
-        if request and request.user.is_authenticated:
-            return obj.get_display_price(request.user)
-        return obj.price_per_night
-    
-    @swagger_serializer_method(serializer_or_field=serializers.URLField())
-    def get_primary_image(self, obj):
-        """Get the primary image URL"""
-        primary_image = obj.images_set.filter(is_primary=True).first()
-        if primary_image:
-            return primary_image.image_url
-        # Fallback to first image
-        first_image = obj.images_set.first()
-        return first_image.image_url if first_image else None
-    
-    @swagger_serializer_method(serializer_or_field=serializers.BooleanField())
-    def get_is_saved(self, obj):
-        """Check if current user has saved this property"""
-        request = self.context.get('request')
-        if request and request.user.is_authenticated:
-            return SavedProperty.objects.filter(
-                user=request.user,
-                property=obj
-            ).exists()
-        return False
-    
-    @swagger_serializer_method(serializer_or_field=serializers.IntegerField())
-    def get_amenity_count(self, obj):
-        """Get total number of amenities"""
-        return len(obj.amenities)
+    def get_response_time(self, obj):
+        """Get owner's average response time (placeholder)"""
+        return "Usually responds within 1 hour"
     
     
 class PropertySerializer(serializers.ModelSerializer):
+    """
+    Full property serializer for detailed views
+    """
     owner_name = serializers.CharField(source='owner.full_name', read_only=True)
+    owner_email = serializers.CharField(source='owner.email', read_only=True)
     display_price = serializers.SerializerMethodField()
     booking_count = serializers.SerializerMethodField()
     images = PropertyImageSerializer(source='images_set', many=True, read_only=True)
     is_saved = serializers.SerializerMethodField()
+    amenity_categories = serializers.SerializerMethodField()
+    price_breakdown = serializers.SerializerMethodField()
     
     class Meta:
         model = Property
         fields = [
-            'id', 'title', 'description', 'address', 'city', 'state', 
-            'country', 'display_price', 'bedrooms', 'bathrooms', 'max_guests', 
-            'images', 'amenities', 'status', 'is_featured', 'is_visible',
-            'owner', 'owner_name', 'booking_count', 'beds24_property_id', 
-            'ical_sync_enabled', 'created_at', 'updated_at', 'is_saved'
+            'id', 'title', 'description', 'summary', 'highlights',
+            'property_type', 'place_type', 'address', 'city', 'state', 
+            'country', 'postal_code', 'latitude', 'longitude', 'neighborhood',
+            'transit_info', 'max_guests', 'bedrooms', 'beds', 'bathrooms',
+            'square_feet', 'bed_configuration', 'amenities', 'amenity_categories',
+            'safety_features', 'accessibility_features', 'house_rules',
+            'smoking_allowed', 'pets_allowed', 'events_allowed', 'children_welcome',
+            'quiet_hours_start', 'quiet_hours_end', 'price_per_night', 'display_price',
+            'cleaning_fee', 'security_deposit', 'extra_guest_fee', 'extra_guest_threshold',
+            'booking_type', 'minimum_stay', 'maximum_stay', 'booking_lead_time',
+            'booking_window', 'check_in_time_start', 'check_in_time_end', 'check_out_time',
+            'self_check_in', 'check_in_instructions', 'cancellation_policy',
+            'guest_requirements', 'status', 'is_featured', 'is_visible',
+            'instant_book_enabled', 'images', 'owner', 'owner_name', 'owner_email',
+            'booking_count', 'beds24_property_id', 'ical_sync_enabled',
+            'created_at', 'updated_at', 'is_saved', 'price_breakdown'
         ]
         read_only_fields = [
-            'id', 'owner', 'beds24_property_id', 'created_at', 'updated_at', 'is_saved'
+            'id', 'owner', 'beds24_property_id', 'created_at', 'updated_at', 
+            'is_saved', 'booking_count', 'amenity_categories', 'price_breakdown'
         ]
     
     def get_display_price(self, obj):
-        """Always return the discounted price (user should never see original price)"""
+        """Get discounted price for the current user"""
         request = self.context.get('request')
         if request and request.user.is_authenticated:
             return obj.get_display_price(request.user)
         return obj.price_per_night
     
     def get_booking_count(self, obj):
+        """Get total booking count"""
         return getattr(obj, 'booking_count', 0)
     
     def get_is_saved(self, obj):
@@ -189,9 +151,35 @@ class PropertySerializer(serializers.ModelSerializer):
                 property=obj
             ).exists()
         return False
+    
+    def get_amenity_categories(self, obj):
+        """Get categorized amenities"""
+        if hasattr(obj, 'get_amenity_categories'):
+            return obj.get_amenity_categories()
+        return {}
+    
+    def get_price_breakdown(self, obj):
+        """Get price breakdown for current user"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            try:
+                return obj.get_total_price_breakdown(request.user)
+            except:
+                pass
+        return {
+            'base_price': float(obj.price_per_night),
+            'cleaning_fee': float(obj.cleaning_fee),
+            'security_deposit': float(obj.security_deposit),
+            'service_fee': 0,
+            'taxes': 0,
+            'total': float(obj.price_per_night + obj.cleaning_fee + obj.security_deposit)
+        }
 
 
 class PropertyCreateSerializer(serializers.ModelSerializer):
+    """
+    Serializer for creating new properties
+    """
     images = serializers.ListField(
         child=serializers.URLField(),
         required=False,
@@ -201,13 +189,24 @@ class PropertyCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Property
         fields = [
-            'title', 'description', 'address', 'city', 'state', 
-            'country', 'postal_code', 'latitude', 'longitude',
-            'price_per_night', 'bedrooms', 'bathrooms', 'max_guests', 
-            'images', 'amenities', 'is_visible'
+            'title', 'description', 'summary', 'property_type', 'place_type',
+            'address', 'city', 'state', 'country', 'postal_code', 
+            'latitude', 'longitude', 'neighborhood', 'max_guests', 
+            'bedrooms', 'beds', 'bathrooms', 'square_feet',
+            'bed_configuration', 'amenities', 'safety_features',
+            'accessibility_features', 'house_rules', 'smoking_allowed',
+            'pets_allowed', 'events_allowed', 'children_welcome',
+            'quiet_hours_start', 'quiet_hours_end', 'price_per_night',
+            'cleaning_fee', 'security_deposit', 'extra_guest_fee',
+            'extra_guest_threshold', 'booking_type', 'minimum_stay',
+            'maximum_stay', 'booking_lead_time', 'booking_window',
+            'check_in_time_start', 'check_in_time_end', 'check_out_time',
+            'self_check_in', 'check_in_instructions', 'cancellation_policy',
+            'guest_requirements', 'is_visible', 'images'
         ]
     
     def create(self, validated_data):
+        """Create property with images"""
         images_data = validated_data.pop('images', [])
         validated_data['owner'] = self.context['request'].user
         validated_data['status'] = 'active'  # Auto-active, no approval needed
@@ -227,8 +226,10 @@ class PropertyCreateSerializer(serializers.ModelSerializer):
     
 
 class SavedPropertySerializer(serializers.ModelSerializer):
-    """Serializer for saved properties with property details"""
-    property = PropertySerializer(read_only=True)
+    """
+    Serializer for saved properties with property details
+    """
+    property = PropertyListSerializer(read_only=True)
     
     class Meta:
         model = SavedProperty
