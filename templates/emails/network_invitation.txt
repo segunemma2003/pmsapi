@@ -4,7 +4,7 @@ Hi {{ invitee_name }},
 
 Great news! {{ owner_name }} has personally invited you to join their trusted network on OnlyIfYouKnow.
 
-TRUST LEVEL: {{ trust_level_name }} ({{ discount_percentage }}% discount)
+TRUST LEVEL: {{ trust_level_name }} 
 
 {% if personal_message %}
 PERSONAL MESSAGE FROM {{ owner_name|upper }}:
