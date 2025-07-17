@@ -98,6 +98,8 @@ class NotificationService:
         
         try:
             user = User.objects.get(email=invitation.email)
+            # Note: discount_percentage here is legacy and not used for property pricing anymore.
+            # Discounts are now per-property. This value is for informational purposes only.
             return NotificationService.create_notification(
                 user=user,
                 title="Trust Network Invitation",
@@ -107,7 +109,7 @@ class NotificationService:
                     'invitation_id': str(invitation.id),
                     'owner_name': invitation.owner.full_name,
                     'trust_level': invitation.trust_level,
-                    'discount_percentage': float(invitation.discount_percentage)
+                    'discount_percentage': float(invitation.discount_percentage)  # Informational only
                 }
             )
         except User.DoesNotExist:

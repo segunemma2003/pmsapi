@@ -118,6 +118,13 @@ class Property(models.Model):
     security_deposit = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     extra_guest_fee = models.DecimalField(max_digits=6, decimal_places=2, default=0)  # Per guest beyond base
     extra_guest_threshold = models.PositiveIntegerField(default=0)  # Number of guests before extra fee applies
+
+    # Trust Level Discounts (per property)
+    trust_level_1_discount = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    trust_level_2_discount = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    trust_level_3_discount = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    trust_level_4_discount = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    trust_level_5_discount = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
     
     # Booking Settings
     booking_type = models.CharField(max_length=20, choices=BOOKING_TYPE_CHOICES, default='request')
@@ -214,7 +221,19 @@ class Property(models.Model):
                         trusted_user=user,
                         status='active'
                     )
-                    discount = float(network.discount_percentage)
+                    trust_level = network.trust_level
+                    # Map trust level to property discount field
+                    discount = 0
+                    if trust_level == 1:
+                        discount = float(self.trust_level_1_discount)
+                    elif trust_level == 2:
+                        discount = float(self.trust_level_2_discount)
+                    elif trust_level == 3:
+                        discount = float(self.trust_level_3_discount)
+                    elif trust_level == 4:
+                        discount = float(self.trust_level_4_discount)
+                    elif trust_level == 5:
+                        discount = float(self.trust_level_5_discount)
                 except (ImportError, Exception):
                     discount = 0
                 

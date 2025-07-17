@@ -694,7 +694,7 @@ class PropertyViewSet(viewsets.ModelViewSet):
         # Calculate pricing
         nights = (check_out - check_in).days
         base_price = property_obj.price_per_night * nights
-        discounted_price = property_obj.get_display_price(request.user) * nights
+        discounted_price = property_obj.get_display_price(request.user, nights, guests_count)
         
         return Response({
             'available': True,
@@ -702,7 +702,7 @@ class PropertyViewSet(viewsets.ModelViewSet):
             'base_price': float(base_price),
             'discounted_price': float(discounted_price),
             'savings': float(base_price - discounted_price),
-            'price_per_night': float(property_obj.get_display_price(request.user))
+            'price_per_night': float(discounted_price / nights if nights > 0 else discounted_price)
         })
 
     @action(detail=True, methods=['get'])

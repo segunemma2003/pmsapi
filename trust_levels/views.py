@@ -436,13 +436,12 @@ class OwnerTrustedNetworkViewSet(viewsets.ModelViewSet):
             )
         
         network.trust_level = new_level
-        network.discount_percentage = trust_level_def.default_discount_percentage
+        # Do not set network.discount_percentage here; discounts are now per-property
         network.save()
         
         return Response({
             'message': 'Trust level updated successfully',
-            'trust_level': new_level,
-            'discount_percentage': float(network.discount_percentage)
+            'trust_level': new_level
         })
     
     @action(detail=True, methods=['delete'])

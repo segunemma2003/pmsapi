@@ -55,7 +55,10 @@ class PropertyListSerializer(serializers.ModelSerializer):
             'city', 'state', 'country', 'display_price', 'bedrooms', 
             'bathrooms', 'max_guests', 'primary_image', 'is_featured',
             'owner_name', 'is_saved', 'amenity_count', 'instant_book_enabled',
-            'response_time', 'created_at'
+            'response_time', 'created_at',
+            # Add trust level discounts
+            'trust_level_1_discount', 'trust_level_2_discount', 'trust_level_3_discount',
+            'trust_level_4_discount', 'trust_level_5_discount',
         ]
     
     def get_display_price(self, obj):
@@ -124,7 +127,10 @@ class PropertySerializer(serializers.ModelSerializer):
             'guest_requirements', 'status', 'is_featured', 'is_visible',
             'instant_book_enabled', 'images', 'owner', 'owner_name', 'owner_email',
             'booking_count', 'beds24_property_id', 'ical_sync_enabled',
-            'created_at', 'updated_at', 'is_saved', 'price_breakdown'
+            'created_at', 'updated_at', 'is_saved', 'price_breakdown',
+            # Add trust level discounts
+            'trust_level_1_discount', 'trust_level_2_discount', 'trust_level_3_discount',
+            'trust_level_4_discount', 'trust_level_5_discount',
         ]
         read_only_fields = [
             'id', 'owner', 'beds24_property_id', 'created_at', 'updated_at', 
@@ -202,7 +208,10 @@ class PropertyCreateSerializer(serializers.ModelSerializer):
             'maximum_stay', 'booking_lead_time', 'booking_window',
             'check_in_time_start', 'check_in_time_end', 'check_out_time',
             'self_check_in', 'check_in_instructions', 'cancellation_policy',
-            'guest_requirements', 'is_visible', 'images'
+            'guest_requirements', 'is_visible', 'images',
+            # Add trust level discounts
+            'trust_level_1_discount', 'trust_level_2_discount', 'trust_level_3_discount',
+            'trust_level_4_discount', 'trust_level_5_discount',
         ]
     
     def create(self, validated_data):
