@@ -13,6 +13,9 @@ from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.conf import settings
 import json
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
 import openai
 from django.conf import settings
 
