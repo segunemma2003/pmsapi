@@ -27,3 +27,4 @@ hiredis
 django-security
 django-csp
 django-celery-beat
+openai

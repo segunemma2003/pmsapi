@@ -13,6 +13,8 @@ from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.conf import settings
 import json
+import openai
+from django.conf import settings
 
 # Import models and components
 from .models import Property, PropertyImage, SavedProperty
@@ -1430,3 +1432,64 @@ END:VCALENDAR"""
                 'bookings': [],
                 'message': 'Booking system not available'
             })
+            
+            
+
+
+class AIPropertyExtractView(APIView):
+    def post(self, request):
+        user_text = request.data.get("text", "")
+        if not user_text:
+            return Response({"error": "No text provided."}, status=status.HTTP_400_BAD_REQUEST)
+
+        openai.api_key = settings.OPENAI_API_KEY
+
+        prompt = f"""
+You are a helpful assistant for a property onboarding platform.
+A user has described their property as follows:
+
+\"\"\"{user_text}\"\"\"
+
+1. Extract as much structured information as possible (property type, location, bedrooms, bathrooms, beds, amenities, features, etc.) as a JSON object.
+2. Generate 3 creative property titles and 3 matching descriptions based on the user's text.
+3. List any important fields that are missing and should be asked for.
+
+Respond in this JSON format:
+{{
+  "extracted": {{
+    "property_type": ...,
+    "location": ...,
+    "bedrooms": ...,
+    "bathrooms": ...,
+    "beds": ...,
+    "amenities": [...],
+    "features": [...],
+    "other": ...
+  }},
+  "titles": ["...", "...", "..."],
+  "descriptions": ["...", "...", "..."],
+  "missing_fields": ["..."]
+}}
+"""
+
+        try:
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=600,
+                temperature=0.7,
+            )
+            import json
+            ai_content = response.choices[0].message.content
+            try:
+                result = json.loads(ai_content)
+            except Exception:
+                import re
+                match = re.search(r'({.*})', ai_content, re.DOTALL)
+                if match:
+                    result = json.loads(match.group(1))
+                else:
+                    return Response({"error": "AI response could not be parsed."}, status=500)
+            return Response(result)
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)

@@ -10,6 +10,7 @@ from invitations.views import InvitationViewSet
 from trust_levels.views import TrustedNetworkInvitationViewSet
 from trust_levels.views import TrustLevelDefinitionViewSet, OwnerTrustedNetworkViewSet
 from analytics.views import AnalyticsViewSet
+from properties.views import AIPropertyExtractView
 
 
 router = DefaultRouter()
@@ -36,4 +37,5 @@ urlpatterns = [
     
     # Custom property endpoints
     path('api/properties/<uuid:pk>/ical/', PropertyViewSet.as_view({'get': 'ical_export'}), name='property-ical'),
+     path('api/properties/ai-extract/', AIPropertyExtractView.as_view(), name='ai-property-extract'),
 ]
