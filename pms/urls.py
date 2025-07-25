@@ -37,5 +37,5 @@ urlpatterns = [
     
     # Custom property endpoints
     path('api/properties/<uuid:pk>/ical/', PropertyViewSet.as_view({'get': 'ical_export'}), name='property-ical'),
-     path('api/properties/ai-extract/', AIPropertyExtractView.as_view(), name='ai-property-extract'),
+     path('api/ai/ai-extract/', AIPropertyExtractView.as_view(), name='ai-property-extract'),
 ]
