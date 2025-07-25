@@ -91,6 +91,7 @@ jobs:
             EMAIL_HOST_USER=apikey
             SENDGRID_API_KEY=${{ secrets.SENDGRID_API_KEY }}
             DEFAULT_FROM_EMAIL=noreply@oifyk.com
+            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
 
             USE_S3=False
 
