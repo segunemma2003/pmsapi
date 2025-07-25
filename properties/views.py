@@ -1445,7 +1445,8 @@ class AIPropertyExtractView(APIView):
         if not user_text:
             return Response({"error": "No text provided."}, status=status.HTTP_400_BAD_REQUEST)
 
-        openai.api_key = settings.OPENAI_API_KEY
+        from openai import OpenAI
+        client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
         prompt = f"""
 You are a helpful assistant for a property onboarding platform.
@@ -1476,7 +1477,7 @@ Respond in this JSON format:
 """
 
         try:
-            response = openai.ChatCompletion.create(
+            response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=600,
