@@ -33,6 +33,9 @@ from openai import OpenAI
 import re
 from typing import Dict, List, Any
 
+
+
+
 class PropertyViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing properties with comprehensive functionality.
@@ -1441,15 +1444,7 @@ END:VCALENDAR"""
             
 
 
-# Enhanced properties/views.py - AI Extraction Section
 
-import json
-import re
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from openai import OpenAI
-from django.conf import settings
 
 class AIPropertyExtractView(APIView):
     """
