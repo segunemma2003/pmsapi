@@ -28,6 +28,7 @@ from .serializers import (
     PropertySerializer, PropertyCreateSerializer, PropertyListSerializer,
     SavedPropertySerializer
 )
+from .filters import PropertyFilter
 
 from openai import OpenAI
 import re
