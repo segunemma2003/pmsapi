@@ -58,7 +58,7 @@ LOCAL_APPS = [
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
-
+OPENAI_API_KEY=config('OPENAI_API_KEY',default='')
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
@@ -72,6 +72,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'utils.middleware.DatabaseRoutingMiddleware',  # Custom routing middleware
     'utils.middleware.CacheHeadersMiddleware',     # Custom caching middleware
+    'properties.middleware.AIRateLimitMiddleware',
 ]
 
 ROOT_URLCONF = 'pms.urls'
@@ -430,4 +431,3 @@ FEATURES = {
 
 BEDS24_API_URL = 'https://beds24.com/api/v2'
 SENDGRID_API_KEY = config('SENDGRID_API_KEY', default='')
-OPENAI_API_KEY=config('OPENAI_API_KEY',default='')
