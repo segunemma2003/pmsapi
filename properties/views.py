@@ -1821,51 +1821,86 @@ Return as JSON:
             })
     
     def _generate_follow_up_question(self, request):
-        """Enhanced question generation with better context awareness"""
+        """Enhanced question generation with comprehensive context awareness"""
         conversation_history = request.data.get("conversation_history", [])
         current_step = request.data.get("current_step", 1)
         extracted_so_far = request.data.get("extracted_data", {})
         completion_percentage = request.data.get("completion_percentage", 0)
         
+        # NEW: Enhanced data from frontend
+        missing_fields = request.data.get("missing_fields", "")
+        missing_fields_detail = request.data.get("missing_fields_detail", [])
+        current_data_summary = request.data.get("current_data_summary", "")
+        last_user_response = request.data.get("last_user_response", "")
+        context = request.data.get("context", "")
+        
         client = OpenAI(api_key=settings.OPENAI_API_KEY)
         
-        # Build context from conversation
-        context = ""
+        # Build enhanced context from conversation
+        conversation_context = ""
         if conversation_history:
-            context = "\n".join([
+            conversation_context = "\n".join([
                 f"Q: {entry.get('question', 'N/A')}\nA: {entry.get('response', '')}" 
                 for entry in conversation_history[-3:]
             ])
         
         extracted_context = json.dumps(extracted_so_far, indent=2) if extracted_so_far else "No data extracted yet"
         
+        # Create detailed missing fields context
+        missing_fields_context = ""
+        if missing_fields_detail:
+            missing_fields_context = "\n".join([
+                f"- {field['name']} ({field['key']}): {field['description']} - Examples: {field['examples']} (Priority: {field['weight']})"
+                for field in missing_fields_detail[:5]  # Focus on top 5 missing fields
+            ])
+        
         prompt = f"""
-Generate the next engaging question for a property onboarding conversation.
-
-CONVERSATION HISTORY:
-{context}
-
-EXTRACTED DATA SO FAR:
-{extracted_context}
-
-COMPLETION PERCENTAGE: {completion_percentage}%
-CURRENT STEP: {current_step}
-
-CONTEXT:
-- If completion < 40%: Focus on basic property details, location, size
-- If completion 40-70%: Explore amenities, unique features, guest experience
-- If completion > 70%: Ask about pricing, policies, hosting preferences
-
-Generate ONE conversational question that:
-1. Builds on what they've already shared
-2. Explores missing important information
-3. Feels natural and engaging
-4. Encourages detailed responses
-5. Shows genuine interest in their property
-
-Return just the question text, nothing else. Make it warm and conversational.
-"""
-
+    Generate the next engaging question for a property onboarding conversation.
+    
+    CONVERSATION HISTORY:
+    {conversation_context}
+    
+    CURRENT DATA SUMMARY:
+    {current_data_summary}
+    
+    EXTRACTED DATA SO FAR:
+    {extracted_context}
+    
+    COMPLETION PERCENTAGE: {completion_percentage}%
+    CURRENT STEP: {current_step}
+    
+    MISSING FIELDS: {missing_fields}
+    
+    DETAILED MISSING FIELDS:
+    {missing_fields_context}
+    
+    LAST USER RESPONSE: "{last_user_response}"
+    
+    CONTEXT:
+    - If completion < 40%: Focus on basic property details, location, size
+    - If completion 40-70%: Explore amenities, unique features, guest experience  
+    - If completion > 70%: Ask about pricing, policies, hosting preferences
+    
+    GENERATION RULES:
+    1. Focus on the HIGHEST PRIORITY missing fields first (highest weight)
+    2. Be SPECIFIC about what information you're looking for
+    3. Reference the user's last response to build context
+    4. Ask for ONE main piece of information per question
+    5. Use the field descriptions and examples to be precise
+    6. Make it conversational and engaging
+    7. Show you understand what they've already shared
+    
+    Generate ONE conversational question that:
+    1. Builds on what they've already shared
+    2. Asks for the most important missing information
+    3. Is specific about what you need (use field descriptions)
+    4. Feels natural and engaging
+    5. Encourages detailed responses
+    6. Shows genuine interest in their property
+    
+    Return just the question text, nothing else. Make it warm and conversational.
+    """
+    
         try:
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -1880,12 +1915,48 @@ Return just the question text, nothing else. Make it warm and conversational.
             return Response({"question": question})
             
         except Exception as e:
-            if completion_percentage < 40:
-                fallback = "What makes your property special? Tell me about the space and what guests will love about it!"
-            elif completion_percentage < 70:
-                fallback = "What amenities and features does your property offer that will make guests' stay memorable?"
+            # Enhanced fallback based on missing fields
+            if missing_fields_detail:
+                # Get the highest priority missing field
+                highest_priority_field = max(missing_fields_detail, key=lambda x: x['weight'])
+                
+                field_name = highest_priority_field['name'].lower()
+                field_key = highest_priority_field['key']
+                
+                fallback_questions = {
+                    'property_type': "What type of property is this? Is it a house, apartment, villa, cabin, or loft? 🏠",
+                    'city': "Where is your property located? Which city? 🌆",
+                    'max_guests': "How many guests can your property accommodate? 👥",
+                    'bedrooms': "How many bedrooms does your property have? ��️",
+                    'bathrooms': "How many bathrooms does your property have? 🚿",
+                    'display_price': "What's your nightly rate? How much do you want to charge per night? 💰",
+                    'title': "What would you like to title your property listing? Make it engaging! ✨",
+                    'description': "Can you describe your property? What makes it special? 📝",
+                    'amenities': "What amenities does your property offer? For example: wifi, kitchen, parking, pool, etc. ⭐",
+                    'images': "Could you upload some photos of your property? 📸",
+                    'address': "What's the full address of your property? 📍",
+                    'smoking_allowed': "What are your house rules? Do you allow smoking? 🚭",
+                    'pets_allowed': "Are pets welcome at your property? 🐾",
+                    'events_allowed': "Do you allow events or parties at your property? 🎉",
+                    'children_welcome': "Are children welcome at your property? 👶",
+                    'trust_level_1_discount': "What discount would you offer for Level 1 trust members? 💎",
+                    'trust_level_2_discount': "What discount would you offer for Level 2 trust members? 💎",
+                    'trust_level_3_discount': "What discount would you offer for Level 3 trust members? 💎",
+                    'trust_level_4_discount': "What discount would you offer for Level 4 trust members? 💎",
+                    'trust_level_5_discount': "What discount would you offer for Level 5 trust members? 💎",
+                    'check_in_time_start': "What time do you prefer for check-ins? ⏰",
+                    'check_out_time': "What time do you prefer for check-outs? ⏰"
+                }
+                
+                fallback = fallback_questions.get(field_key, f"Tell me more about {field_name}. What should I know? 🏡")
             else:
-                fallback = "What's your hosting style like, and what policies do you want to set for guests?"
+                # Generic fallback based on completion percentage
+                if completion_percentage < 40:
+                    fallback = "What makes your property special? Tell me about the space and what guests will love about it!"
+                elif completion_percentage < 70:
+                    fallback = "What amenities and features does your property offer that will make guests' stay memorable?"
+                else:
+                    fallback = "What's your hosting style like, and what policies do you want to set for guests?"
             
             return Response({"question": fallback})
     
