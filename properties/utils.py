@@ -1,35 +1,8 @@
-# Additional utility functions and settings for the backend
-
-# settings.py - Add these settings
-OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', 'your-openai-api-key-here')
-
-# Add logging configuration
-LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'handlers': {
-        'file': {
-            'level': 'INFO',
-            'class': 'logging.FileHandler',
-            'filename': 'ai_extraction.log',
-        },
-        'console': {
-            'level': 'DEBUG',
-            'class': 'logging.StreamHandler',
-        },
-    },
-    'loggers': {
-        'properties.views': {
-            'handlers': ['file', 'console'],
-            'level': 'INFO',
-            'propagate': True,
-        },
-    },
-}
-
-# properties/utils.py - Additional utility functions
 import re
 from typing import Dict, List, Any
+import logging
+
+logger = logging.getLogger(__name__)
 
 def extract_trust_level_discounts(text: str) -> Dict[str, int]:
     """Extract trust level discounts from text"""
@@ -85,11 +58,11 @@ def validate_time_format(time_string: str) -> str:
     time_str = re.sub(r'[^\d:apm\s]', '', time_str)
     
     # Check if already in 24-hour format
-    if re.match(r'^\d{2}:\d{2}$', time_str):
+    if re.match(r'^\d{2}:\d{2}, time_str):
         return time_str
     
     # Handle 12-hour format with AM/PM
-    match = re.match(r'^(\d{1,2}):(\d{2})\s*(am|pm)$', time_str)
+    match = re.match(r'^(\d{1,2}):(\d{2})\s*(am|pm), time_str)
     if match:
         hour = int(match.group(1))
         minute = match.group(2)
@@ -103,7 +76,7 @@ def validate_time_format(time_string: str) -> str:
         return f"{hour:02d}:{minute}"
     
     # Handle hour only with AM/PM
-    match = re.match(r'^(\d{1,2})\s*(am|pm)$', time_str)
+    match = re.match(r'^(\d{1,2})\s*(am|pm), time_str)
     if match:
         hour = int(match.group(1))
         period = match.group(2)
@@ -116,7 +89,7 @@ def validate_time_format(time_string: str) -> str:
         return f"{hour:02d}:00"
     
     # Handle 24-hour format without colon
-    match = re.match(r'^(\d{2})(\d{2})$', time_str)
+    match = re.match(r'^(\d{2})(\d{2}), time_str)
     if match:
         return f"{match.group(1)}:{match.group(2)}"
     
@@ -209,7 +182,7 @@ def extract_location_components(text: str) -> Dict[str, str]:
     # Country extraction
     country_patterns = [
         r'(?:in|country|located in)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)',
-        r',\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)$'
+        r',\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)
     ]
     
     for pattern in country_patterns:
@@ -254,76 +227,3 @@ def validate_numeric_field(value: Any, field_name: str) -> Any:
         return None
     except (ValueError, TypeError):
         return None
-
-# properties/middleware.py - Add rate limiting for AI calls
-from django.core.cache import cache
-from django.http import JsonResponse
-import time
-
-class AIRateLimitMiddleware:
-    """Rate limiting middleware for AI API calls"""
-    
-    def __init__(self, get_response):
-        self.get_response = get_response
-
-    def __call__(self, request):
-        # Check if this is an AI extraction request
-        if request.path.startswith('/api/ai/') and request.method == 'POST':
-            user_id = getattr(request.user, 'id', 'anonymous')
-            cache_key = f'ai_rate_limit_{user_id}'
-            
-            # Get current request count
-            current_count = cache.get(cache_key, 0)
-            
-            # Allow 30 requests per minute
-            if current_count >= 30:
-                return JsonResponse({
-                    'error': 'Rate limit exceeded. Please wait a moment before trying again.'
-                }, status=429)
-            
-            # Increment counter
-            cache.set(cache_key, current_count + 1, 60)  # 60 seconds
-        
-        response = self.get_response(request)
-        return response
-
-# Error handling decorator
-from functools import wraps
-from django.http import JsonResponse
-import traceback
-
-def handle_ai_errors(func):
-    """Decorator to handle AI-related errors gracefully"""
-    @wraps(func)
-    def wrapper(self, request, *args, **kwargs):
-        try:
-            return func(self, request, *args, **kwargs)
-        except openai.APIConnectionError:
-            logger.error("OpenAI API connection error")
-            return JsonResponse({
-                'error': 'AI service temporarily unavailable. Please try again.',
-                'fallback': True
-            }, status=503)
-        except openai.RateLimitError:
-            logger.error("OpenAI rate limit exceeded")
-            return JsonResponse({
-                'error': 'AI service rate limit exceeded. Please wait a moment.',
-                'fallback': True
-            }, status=429)
-        except openai.APIError as e:
-            logger.error(f"OpenAI API error: {str(e)}")
-            return JsonResponse({
-                'error': 'AI service error. Please try again.',
-                'fallback': True
-            }, status=500)
-        except Exception as e:
-            logger.error(f"Unexpected error in AI extraction: {str(e)}")
-            logger.error(traceback.format_exc())
-            return JsonResponse({
-                'error': 'An unexpected error occurred. Please try again.',
-                'fallback': True
-            }, status=500)
-    return wrapper
-
-# Apply the decorator to your AIPropertyExtractView methods
-# Just add @handle_ai_errors above each method in the class
