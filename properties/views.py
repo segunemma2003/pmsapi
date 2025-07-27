@@ -1548,7 +1548,7 @@ EXTRACTION RULES:
 
         try:
             response = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-4o",
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=1200,
                 temperature=0.3,
@@ -1670,7 +1670,7 @@ Use exact values from allowed lists. Convert times to 24-hour format.
 
         try:
             response = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-4o",
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=600,
                 temperature=0.4,
@@ -1773,7 +1773,7 @@ Make it warm, conversational, and specific.
     
         try:
             response = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-4o",
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=150,
                 temperature=0.8,
@@ -1848,7 +1848,7 @@ Return as JSON:
 
         try:
             response = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-4o",
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=500,
                 temperature=0.7,
@@ -1924,7 +1924,7 @@ Return as JSON:
 
         try:
             response = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-4o",
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=800,
                 temperature=0.8,
