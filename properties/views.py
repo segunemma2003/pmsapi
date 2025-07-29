@@ -1565,7 +1565,7 @@ EXTRACTION RULES:
             return Response({"error": str(e)}, status=500)
     
     def _progressive_extraction(self, request):
-        """Enhanced progressive extraction with better context understanding"""
+        """Enhanced progressive extraction with better context understanding and action control"""
         current_response = request.data.get("current_response", "")
         question_context = request.data.get("question_context", "")
         previous_data = request.data.get("previous_data", {})
@@ -1595,84 +1595,91 @@ EXTRACTION RULES:
             ])
 
         prompt = f"""
-You are extracting property information progressively from an ongoing conversation.
+    You are extracting property information progressively from an ongoing conversation.
 
-CONVERSATION CONTEXT:
-{conversation_context}
+    CONVERSATION CONTEXT:
+    {conversation_context}
 
-CURRENT QUESTION CONTEXT: {question_context}
-USER'S CURRENT RESPONSE: {current_response}
+    CURRENT QUESTION CONTEXT: {question_context}
+    USER'S CURRENT RESPONSE: {current_response}
 
-PREVIOUSLY EXTRACTED DATA: {json.dumps(previous_data, indent=2)}
-CURRENT COMPLETION: {current_completion}%
+    PREVIOUSLY EXTRACTED DATA: {json.dumps(previous_data, indent=2)}
+    CURRENT COMPLETION: {current_completion}%
 
-MISSING FIELDS NEEDED:
-{missing_fields_context}
+    MISSING FIELDS NEEDED:
+    {missing_fields_context}
 
-CRITICAL EXTRACTION RULES:
-1. Extract trust level discount percentages (Bronze 2%, Silver 5%, Gold 8%, Platinum 12%, Diamond 15%)
-2. Identify property features, amenities, and policies mentioned
-3. Extract location details (city, country, neighborhood, address, house_number, street)
-4. Pick up pricing hints, capacity details, room information
-5. Understand hosting preferences and house rules
-6. Detect any timing information (check-in/out times)
-7. AVOID extracting numbers from addresses as guest counts or prices
-8. When you see "10 Ikota Villa Estate" - extract "10" as house_number, "Ikota Villa Estate" as street/address
-9. Only extract guest counts when explicitly stated: "4 guests", "accommodates 6"
-10. Only extract prices when clear: "$150 per night", "costs $200"
+    CRITICAL EXTRACTION RULES:
+    1. Extract trust level discount percentages (Bronze 2%, Silver 5%, Gold 8%, Platinum 12%, Diamond 15%)
+    2. Identify property features, amenities, and policies mentioned
+    3. Extract location details (city, country, neighborhood, address, house_number, street)
+    4. Pick up pricing hints, capacity details, room information
+    5. Understand hosting preferences and house rules
+    6. Detect any timing information (check-in/out times)
+    7. AVOID extracting numbers from addresses as guest counts or prices
+    8. When you see "10 Ikota Villa Estate" - extract "10" as house_number, "Ikota Villa Estate" as street/address
+    9. Only extract guest counts when explicitly stated: "4 guests", "accommodates 6"
+    10. Only extract prices when clear: "$150 per night", "costs $200"
 
-Extract ONLY NEW or UPDATED information from the current response. Be very careful to:
+    DECISION MAKING:
+    Based on the current completion percentage and missing fields, decide the next action:
+    - "continue_conversation" if you should ask another question (completion < 70% and conversational fields remain)
+    - "transition_to_guided" if you should move to guided prompts (completion >= 70% OR only guided fields remain like images, amenities, location)
+    - "complete" if the form is ready to submit (all required fields are filled)
 
-Respond in this JSON format:
-{{
-  "extracted": {{
-    "property_type": "apartment|house|villa|cabin|loft|other",
-    "place_type": "entire_place|private_room|shared_room",
-    "city": "city name",
-    "country": "country name",
-    "address": "full address",
-    "house_number": "building number",
-    "street": "street name",
-    "neighborhood": "area name",
-    "bedrooms": number,
-    "bathrooms": number,
-    "max_guests": number,
-    "amenities": ["list from: wifi, kitchen, tv, air_conditioning, parking, pool, washer, dryer, dishwasher, gym, hot_tub, balcony, garden"],
-    "display_price": number,
-    "price_per_night": number,
-    "smoking_allowed": true/false,
-    "pets_allowed": true/false,
-    "events_allowed": true/false,
-    "children_welcome": true/false,
-    "instant_book_enabled": true/false,
-    "trust_level_1_discount": number,
-    "trust_level_2_discount": number,
-    "trust_level_3_discount": number,
-    "trust_level_4_discount": number,
-    "trust_level_5_discount": number,
-    "check_in_time_start": "HH:MM",
-    "check_out_time": "HH:MM",
-    "title": "title suggestion",
-    "description": "description snippet"
-  }},
-  "insights": {{
-    "hosting_style": "hands-on|relaxed|professional|friendly",
-    "property_vibe": "cozy|modern|luxury|rustic|artistic|family-friendly",
-    "guest_focus": "business|leisure|families|couples|solo",
-    "extracted_confidence": 0.0-1.0
-  }},
-  "next_question_hint": "What aspect to explore next based on what's missing"
-}}
+    Respond in this exact JSON format:
+    {{
+    "extracted": {{
+        "property_type": "apartment|house|villa|cabin|loft|other",
+        "place_type": "entire_place|private_room|shared_room",
+        "city": "city name",
+        "country": "country name",
+        "address": "full address",
+        "house_number": "building number",
+        "street": "street name",
+        "neighborhood": "area name",
+        "bedrooms": number,
+        "bathrooms": number,
+        "max_guests": number,
+        "amenities": ["list from: wifi, kitchen, tv, air_conditioning, parking, pool, washer, dryer, dishwasher, gym, hot_tub, balcony, garden"],
+        "display_price": number,
+        "price_per_night": number,
+        "smoking_allowed": true/false,
+        "pets_allowed": true/false,
+        "events_allowed": true/false,
+        "children_welcome": true/false,
+        "instant_book_enabled": true/false,
+        "trust_level_1_discount": number,
+        "trust_level_2_discount": number,
+        "trust_level_3_discount": number,
+        "trust_level_4_discount": number,
+        "trust_level_5_discount": number,
+        "check_in_time_start": "HH:MM",
+        "check_out_time": "HH:MM",
+        "title": "title suggestion",
+        "description": "description snippet"
+    }},
+    "next_action": "continue_conversation|transition_to_guided|complete",
+    "next_question": "Your next question here (only if next_action is continue_conversation)",
+    "confidence": 0.95,
+    "reasoning": "Why you made this decision",
+    "insights": {{
+        "hosting_style": "hands-on|relaxed|professional|friendly",
+        "property_vibe": "cozy|modern|luxury|rustic|artistic|family-friendly",
+        "guest_focus": "business|leisure|families|couples|solo",
+        "extracted_confidence": 0.0-1.0
+    }}
+    }}
 
-ONLY include fields where you found NEW information. Leave out fields with no new data.
-Use exact values from allowed lists. Convert times to 24-hour format.
-"""
+    ONLY include fields where you found NEW information. Leave out fields with no new data.
+    Use exact values from allowed lists. Convert times to 24-hour format.
+    """
 
         try:
             response = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=600,
+                max_tokens=800,
                 temperature=0.4,
             )
             
@@ -1681,6 +1688,19 @@ Use exact values from allowed lists. Convert times to 24-hour format.
             
             if "extracted" in result:
                 result["extracted"] = self._validate_extracted_fields(result["extracted"])
+            
+            # Ensure required fields are present
+            if "next_action" not in result:
+                if current_completion >= 70:
+                    result["next_action"] = "transition_to_guided"
+                else:
+                    result["next_action"] = "continue_conversation"
+            
+            if "confidence" not in result:
+                result["confidence"] = 0.8
+            
+            if "reasoning" not in result:
+                result["reasoning"] = f"Completion at {current_completion}% - {'ready for guided prompts' if current_completion >= 70 else 'continuing conversation'}"
             
             return Response(result)
             
@@ -1720,57 +1740,57 @@ Use exact values from allowed lists. Convert times to 24-hour format.
             ])
         
         prompt = f"""
-Generate the next engaging question for a property onboarding conversation.
+    Generate the next engaging question for a property onboarding conversation.
 
-CONVERSATION HISTORY:
-{conversation_context}
+    CONVERSATION HISTORY:
+    {conversation_context}
 
-CURRENT DATA SUMMARY:
-{current_data_summary}
+    CURRENT DATA SUMMARY:
+    {current_data_summary}
 
-EXTRACTED DATA SO FAR:
-{extracted_context}
+    EXTRACTED DATA SO FAR:
+    {extracted_context}
 
-COMPLETION PERCENTAGE: {completion_percentage}%
-CURRENT STEP: {current_step}
+    COMPLETION PERCENTAGE: {completion_percentage}%
+    CURRENT STEP: {current_step}
 
-MISSING FIELDS: {missing_fields}
+    MISSING FIELDS: {missing_fields}
 
-DETAILED MISSING FIELDS:
-{missing_fields_context}
+    DETAILED MISSING FIELDS:
+    {missing_fields_context}
 
-LAST USER RESPONSE: "{last_user_response}"
+    LAST USER RESPONSE: "{last_user_response}"
 
-CONTEXT:
-- If completion < 40%: Focus on basic property details, location, size
-- If completion 40-70%: Explore amenities, unique features, guest experience  
-- If completion > 70%: Ask about pricing, policies, hosting preferences
+    CONTEXT:
+    - If completion < 40%: Focus on basic property details, location, size
+    - If completion 40-70%: Explore amenities, unique features, guest experience  
+    - If completion > 70%: Ask about pricing, policies, hosting preferences
 
-GENERATION RULES:
-1. Focus on the HIGHEST PRIORITY missing fields first (highest weight)
-2. Be SPECIFIC about what information you're looking for
-3. Reference the user's last response to build context
-4. Ask for ONE main piece of information per question
-5. Use the field descriptions and examples to be precise
-6. Make it conversational and engaging
-7. Show you understand what they've already shared
+    GENERATION RULES:
+    1. Focus on the HIGHEST PRIORITY missing fields first (highest weight)
+    2. Be SPECIFIC about what information you're looking for
+    3. Reference the user's last response to build context
+    4. Ask for ONE main piece of information per question
+    5. Use the field descriptions and examples to be precise
+    6. Make it conversational and engaging
+    7. Show you understand what they've already shared
 
-Generate ONE conversational question that:
-1. Builds on what they've already shared
-2. Asks for the most important missing information
-3. Is specific about what you need (use field descriptions)
-4. Feels natural and engaging
-5. Encourages detailed responses
-6. Shows genuine interest in their property
+    Generate ONE conversational question that:
+    1. Builds on what they've already shared
+    2. Asks for the most important missing information
+    3. Is specific about what you need (use field descriptions)
+    4. Feels natural and engaging
+    5. Encourages detailed responses
+    6. Shows genuine interest in their property
 
-Return ONLY the question text in this format:
-{{
-  "question": "Your generated question here"
-}}
+    Return ONLY the question text in this format:
+    {{
+    "question": "Your generated question here"
+    }}
 
-Make it warm, conversational, and specific.
-"""
-    
+    Make it warm, conversational, and specific.
+    """
+
         try:
             response = client.chat.completions.create(
                 model="gpt-4o",
