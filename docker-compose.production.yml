@@ -25,8 +25,6 @@ services:
       dockerfile: Dockerfile.production
       args:
         BUILDKIT_INLINE_CACHE: 1
-      # Increase build timeout for AI dependencies
-      timeout: 1800
     container_name: oifyk_web
     command: gunicorn pms.wsgi:application --bind 0.0.0.0:8000 --workers 4 --timeout 120 --keep-alive 2 --log-level info
     volumes:
@@ -88,7 +86,6 @@ services:
       dockerfile: Dockerfile.production
       args:
         BUILDKIT_INLINE_CACHE: 1
-      timeout: 1800
     container_name: oifyk_celery
     command: celery -A pms worker -l info -Q celery,trust_levels --concurrency=2
     volumes:
@@ -108,7 +105,6 @@ services:
       dockerfile: Dockerfile.production
       args:
         BUILDKIT_INLINE_CACHE: 1
-      timeout: 1800
     container_name: oifyk_celery_beat
     command: celery -A pms beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
     volumes:

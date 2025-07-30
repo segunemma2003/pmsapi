@@ -118,7 +118,7 @@ class Property(models.Model):
     security_deposit = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     extra_guest_fee = models.DecimalField(max_digits=6, decimal_places=2, default=0)  # Per guest beyond base
     extra_guest_threshold = models.PositiveIntegerField(default=0)  # Number of guests before extra fee applies
-
+    
     # Trust Level Discounts (per property)
     trust_level_1_discount = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
     trust_level_2_discount = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)

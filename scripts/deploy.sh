@@ -46,6 +46,7 @@ chmod +x scripts/setup-ssl.sh 2>/dev/null || true
 # ⚠️ IMPORTANT: Stop containers but PRESERVE VOLUMES (database data)
 echo "🛑 Stopping containers (preserving database data)..."
 $DC_CMD -f docker-compose.production.yml down --remove-orphans || true
+$DC_CMD -f docker-compose.pipeline.yml down --remove-orphans || true
 
 # Remove any orphaned containers with our project names (but keep volumes)
 echo "🗑️ Removing orphaned containers..."
@@ -81,7 +82,7 @@ fi
 
 # Build and start services
 echo "🔨 Building and starting services..."
-$DC_CMD -f docker-compose.production.yml build --no-cache
+$DC_CMD -f docker-compose.production.yml build --no-cache --pull
 $DC_CMD -f docker-compose.production.yml up -d
 
 # Wait for database
@@ -107,6 +108,10 @@ sleep 10
 # Run migrations and setup
 echo "📊 Running migrations..."
 $DC_CMD -f docker-compose.production.yml exec -T web python manage.py migrate --noinput
+
+# Initialize database if needed
+echo "🔧 Initializing database..."
+$DC_CMD -f docker-compose.production.yml exec -T web python manage.py check --deploy || true
 
 echo "📁 Collecting static files..."
 $DC_CMD -f docker-compose.production.yml exec -T web python manage.py collectstatic --noinput
