@@ -142,9 +142,9 @@ jobs:
             echo "🔍 Testing service health..."
 
             # Test simple health check (no database required) - try HTTPS first, then HTTP
-            if curl -f https://api.oifyk.com/api/health/simple/ > /dev/null 2>&1; then
+            if /usr/bin/curl -f https://api.oifyk.com/api/health/simple/ > /dev/null 2>&1; then
               echo "✅ Simple health check passed (HTTPS)"
-            elif curl -f http://api.oifyk.com/api/health/simple/ > /dev/null 2>&1; then
+            elif /usr/bin/curl -f http://api.oifyk.com/api/health/simple/ > /dev/null 2>&1; then
               echo "✅ Simple health check passed (HTTP)"
             else
               echo "❌ Simple health check failed"
@@ -153,18 +153,18 @@ jobs:
             fi
 
             # Test full health check (with database) - try HTTPS first, then HTTP
-            if curl -f https://api.oifyk.com/api/health/ > /dev/null 2>&1; then
+            if /usr/bin/curl -f https://api.oifyk.com/api/health/ > /dev/null 2>&1; then
               echo "✅ Full health check passed (HTTPS)"
-            elif curl -f http://api.oifyk.com/api/health/ > /dev/null 2>&1; then
+            elif /usr/bin/curl -f http://api.oifyk.com/api/health/ > /dev/null 2>&1; then
               echo "✅ Full health check passed (HTTP)"
             else
               echo "⚠️ Full health check failed (database might not be ready yet)"
             fi
 
             # Test nginx proxy - try HTTPS first, then HTTP
-            if curl -f https://api.oifyk.com/api/health/simple/ > /dev/null 2>&1; then
+            if /usr/bin/curl -f https://api.oifyk.com/api/health/simple/ > /dev/null 2>&1; then
               echo "✅ Nginx proxy health check passed (HTTPS)"
-            elif curl -f http://api.oifyk.com/api/health/simple/ > /dev/null 2>&1; then
+            elif /usr/bin/curl -f http://api.oifyk.com/api/health/simple/ > /dev/null 2>&1; then
               echo "✅ Nginx proxy health check passed (HTTP)"
             else
               echo "❌ Nginx proxy health check failed"

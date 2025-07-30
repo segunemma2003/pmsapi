@@ -137,7 +137,7 @@ echo "🔍 Testing service health..."
 sleep 5
 
 # Test web service health (internal)
-if curl -f http://localhost:8000/api/health/ > /dev/null 2>&1; then
+if /usr/bin/curl -f http://localhost:8000/api/health/ > /dev/null 2>&1; then
     echo "✅ Web service health check passed"
 else
     echo "⚠️ Web service health check failed - checking logs..."
@@ -145,9 +145,9 @@ else
 fi
 
 # Test external domain health check - try HTTPS first, then HTTP
-if curl -f https://api.oifyk.com/api/health/simple/ > /dev/null 2>&1; then
+if /usr/bin/curl -f https://api.oifyk.com/api/health/simple/ > /dev/null 2>&1; then
     echo "✅ External domain health check passed (HTTPS)"
-elif curl -f http://api.oifyk.com/api/health/simple/ > /dev/null 2>&1; then
+elif /usr/bin/curl -f http://api.oifyk.com/api/health/simple/ > /dev/null 2>&1; then
     echo "✅ External domain health check passed (HTTP)"
 else
     echo "⚠️ External domain health check failed - checking logs..."
