@@ -8,21 +8,52 @@ to support the enhanced flexible chat interface for property onboarding.
 import os
 import json
 from typing import Dict, Any, Optional
-import googlemaps
+try:
+    import googlemaps
+except ImportError:
+    googlemaps = None
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 import openai
+from openai import OpenAI
 
 # Initialize Google Maps client
 GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY')
 gmaps = None
-if GOOGLE_MAPS_API_KEY:
+if GOOGLE_MAPS_API_KEY and googlemaps:
     gmaps = googlemaps.Client(key=GOOGLE_MAPS_API_KEY)
 
 # Initialize OpenAI client
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-openai.api_key = OPENAI_API_KEY
+client = None
+if OPENAI_API_KEY:
+    client = OpenAI(api_key=OPENAI_API_KEY)
+
+def validate_trust_level_discounts(extracted_data):
+    """
+    Validate and normalize trust level discounts from extracted data.
+    """
+    trust_fields = [
+        'trust_level_1_discount', 'trust_level_2_discount', 
+        'trust_level_3_discount', 'trust_level_4_discount', 
+        'trust_level_5_discount'
+    ]
+    
+    validated_discounts = {}
+    for field in trust_fields:
+        value = extracted_data.get(field, 0)
+        try:
+            # Convert to float and validate range
+            discount = float(value)
+            if 0 <= discount <= 100:
+                validated_discounts[field] = discount
+            else:
+                validated_discounts[field] = 0  # Default to 0 if invalid
+        except (ValueError, TypeError):
+            validated_discounts[field] = 0  # Default to 0 if invalid
+    
+    return validated_discounts
 
 @csrf_exempt
 @require_http_methods(["POST"])
@@ -65,6 +96,16 @@ Your task:
 3. Ask for missing information in a friendly way
 4. Use emojis and be enthusiastic
 
+Property fields to extract:
+- Basic: title, description, property_type, place_type
+- Location: address, city, state, country, postal_code, neighborhood
+- Space: max_guests, bedrooms, beds, bathrooms, square_feet
+- Pricing: price_per_night, cleaning_fee, security_deposit
+- Trust discounts: trust_level_1_discount, trust_level_2_discount, trust_level_3_discount, trust_level_4_discount, trust_level_5_discount
+- Features: amenities, safety_features, accessibility_features
+- Rules: house_rules, smoking_allowed, pets_allowed, events_allowed, children_welcome
+- Booking: booking_type, minimum_stay, maximum_stay
+
 Example conversation flow:
 User: "It's a small house just outside town. Nothing fancy but it's warm and quiet."
 Assistant: "That sounds lovely! 🏡 A warm and quiet house just outside of town is a great option. Um, actually we need some more details about your property! Could you please tell me the other information about your property? For example, the location, the number of bedrooms and bathrooms and amenities, your neighborhoods etc."
@@ -78,7 +119,13 @@ Respond in this format:
 }}"""
 
         # Call OpenAI
-        response = openai.ChatCompletion.create(
+        if not client:
+            return JsonResponse({
+                "success": False,
+                "error": "AI service is not configured. Please contact support."
+            })
+            
+        response = client.chat.completions.create(
             model="gpt-4",
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -92,6 +139,12 @@ Respond in this format:
         ai_response = response.choices[0].message.content
         try:
             parsed_response = json.loads(ai_response)
+            
+            # Validate and process trust level discounts if present
+            if 'extracted' in parsed_response:
+                trust_discounts = validate_trust_level_discounts(parsed_response['extracted'])
+                parsed_response['extracted'].update(trust_discounts)
+                
         except json.JSONDecodeError:
             # Fallback if JSON parsing fails
             parsed_response = {
