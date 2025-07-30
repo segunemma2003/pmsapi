@@ -34,10 +34,25 @@ from openai import OpenAI
 import re
 from typing import Dict, List, Any
 
+try:
+    from properties.nlp_utils import NLPProcessor
+    NLP_AVAILABLE = True
+except ImportError:
+    NLP_AVAILABLE = False
+    print("Warning: NLP utilities not available. Using fallback extraction.")
+
 import logging
 
 logger = logging.getLogger(__name__)
 
+
+GOOGLE_MAPS_API_KEY = settings.GOOGLE_MAPS_API_KEY
+gmaps = googlemaps.Client(key=GOOGLE_MAPS_API_KEY)
+OPENAI_API_KEY= settings.OPENAI_API_KEY
+openai.api_key = OPENAI_API_KEY
+
+if NLP_AVAILABLE:
+    nlp_processor = NLPProcessor()
 
 
 class PropertyViewSet(viewsets.ModelViewSet):
@@ -1457,20 +1472,71 @@ class AIPropertyExtractView(APIView):
     """
     
     def post(self, request):
-        action = request.data.get("action", "extract")
-        
-        if action == "extract":
-            return self._extract_property_data(request)
-        elif action == "generate_question":
-            return self._generate_follow_up_question(request)
-        elif action == "progressive_extract":
-            return self._progressive_extraction(request)
-        elif action == "generate_titles":
-            return self._generate_conversational_titles(request)
-        elif action == "generate_descriptions":
-            return self._generate_conversational_descriptions(request)
-        else:
-            return Response({"error": "Invalid action"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            data = request.data
+            
+            # Extract parameters
+            user_input = data.get('user_input', '')
+            conversation_context = data.get('conversation_context', {})
+            extraction_config = data.get('extraction_config', {})
+            
+            # Get context data
+            extracted_data = conversation_context.get('extracted_data', {})
+            missing_fields = conversation_context.get('missing_fields', [])
+            completion_percentage = conversation_context.get('completion_percentage', 0)
+            previous_responses = conversation_context.get('previous_responses', [])
+            extraction_attempts = conversation_context.get('extraction_attempts', 0)
+            
+            # Use NLP if available, otherwise fallback to OpenAI
+            if NLP_AVAILABLE and nlp_processor:
+                result = self._process_with_nlp(user_input, conversation_context, extraction_config)
+            else:
+                result = self._process_with_openai(user_input, conversation_context, extraction_config)
+            
+            return Response({
+                "success": True,
+                "extracted_entities": result.get('extracted_entities', []),
+                "user_intent": result.get('user_intent', 'provide_information'),
+                "sentiment_analysis": result.get('sentiment_analysis', {}),
+                "extracted_data": result.get('extracted_data', {}),
+                "follow_up_question": result.get('follow_up_question', ''),
+                "confidence": result.get('confidence', 0.8)
+            })
+            
+        except Exception as e:
+            return Response({
+                "success": False,
+                "error": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def _process_with_nlp(self, user_input: str, conversation_context: Dict, extraction_config: Dict) -> Dict:
+        """Process user input using NLP capabilities."""
+        try:
+            # Use NLP processor for extraction
+            nlp_result = nlp_processor.extract_property_data(user_input, conversation_context)
+            
+            # Merge with existing extracted data
+            existing_data = conversation_context.get('extracted_data', {})
+            new_data = nlp_result.get('extracted_data', {})
+            
+            # Update extracted data (don't overwrite existing data)
+            for key, value in new_data.items():
+                if key not in existing_data or not existing_data[key]:
+                    existing_data[key] = value
+            
+            return {
+                'extracted_entities': nlp_result.get('extracted_entities', []),
+                'user_intent': nlp_result.get('user_intent', 'provide_information'),
+                'sentiment_analysis': nlp_result.get('sentiment_analysis', {}),
+                'extracted_data': existing_data,
+                'follow_up_question': nlp_result.get('follow_up_question', ''),
+                'confidence': 0.9
+            }
+            
+        except Exception as e:
+            print(f"NLP processing failed: {e}")
+            # Fallback to OpenAI
+            return self._process_with_openai(user_input, conversation_context, extraction_config)
     
     def _extract_property_data(self, request):
         """Enhanced extraction with better AI prompting"""
@@ -2203,6 +2269,78 @@ Return as JSON:
             ]
         
         return validated
+
+    def _process_with_openai(self, user_input: str, conversation_context: Dict, extraction_config: Dict) -> Dict:
+        """Fallback processing using OpenAI."""
+        try:
+            # Build the prompt for OpenAI
+            system_prompt = f"""You are a friendly, enthusiastic AI property assistant helping users create property listings. 
+            
+Current completion: {conversation_context.get('completion_percentage', 0)}%
+Missing fields: {', '.join([field.get('name', '') for field in conversation_context.get('missing_fields', [])])}
+
+Previous conversation:
+{chr(10).join([f"User: {msg}" for msg in conversation_context.get('previous_responses', [])[-3:]])}
+
+Current user response: "{user_input}"
+
+Your task:
+1. Extract any property information from the user's response
+2. Provide a natural, conversational response that acknowledges what they said
+3. Ask for missing information in a friendly way
+4. Use emojis and be enthusiastic
+
+Respond in this format:
+{{
+    "extracted": {{"field_name": "value"}},
+    "question": "Your conversational response here",
+    "next_action": "continue_conversation|transition_to_guided|complete",
+    "reasoning": "Why you chose this response"
+}}"""
+
+            # Call OpenAI
+            response = openai.ChatCompletion.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_input}
+                ],
+                temperature=0.7,
+                max_tokens=500
+            )
+            
+            # Parse the response
+            ai_response = response.choices[0].message.content
+            try:
+                parsed_response = json.loads(ai_response)
+            except json.JSONDecodeError:
+                # Fallback if JSON parsing fails
+                parsed_response = {
+                    "extracted": {},
+                    "question": ai_response,
+                    "next_action": "continue_conversation",
+                    "reasoning": "AI provided conversational response"
+                }
+            
+            return {
+                'extracted_entities': [],
+                'user_intent': 'provide_information',
+                'sentiment_analysis': {'sentiment': 'neutral', 'confidence': 0.5},
+                'extracted_data': parsed_response.get("extracted", {}),
+                'follow_up_question': parsed_response.get("question", ""),
+                'confidence': 0.8
+            }
+            
+        except Exception as e:
+            print(f"OpenAI processing failed: {e}")
+            return {
+                'extracted_entities': [],
+                'user_intent': 'provide_information',
+                'sentiment_analysis': {'sentiment': 'neutral', 'confidence': 0.5},
+                'extracted_data': {},
+                'follow_up_question': "I'm having trouble understanding. Could you please tell me about your property?",
+                'confidence': 0.5
+            }
     
     def _parse_ai_response(self, ai_content):
         """Enhanced AI response parsing with multiple fallback strategies"""
@@ -2237,4 +2375,94 @@ Return as JSON:
                 "error": "Could not parse AI response"
             }
 
+@csrf_exempt
+@require_http_methods(["POST"])
+def validate_address(request):
+    """
+    Address validation endpoint using Google Maps API.
+    Validates addresses and returns structured location data.
+    """
+    try:
+        data = json.loads(request.body)
+        address = data.get('address', '')
+        
+        if not address:
+            return JsonResponse({
+                "success": False,
+                "isValid": False,
+                "error": "Address is required"
+            })
+        
+        # Use Google Maps Geocoding API
+        geocode_result = gmaps.geocode(address)
+        
+        if not geocode_result:
+            return JsonResponse({
+                "success": False,
+                "isValid": False,
+                "error": "Address not found"
+            })
+        
+        # Extract location data
+        location = geocode_result[0]
+        geometry = location.get('geometry', {})
+        address_components = location.get('address_components', [])
+        
+        # Parse address components
+        location_data = {
+            "address": location.get('formatted_address', address),
+            "house_number": "",
+            "street": "",
+            "city": "",
+            "state": "",
+            "country": "",
+            "postal_code": "",
+            "neighborhood": "",
+            "latitude": geometry.get('location', {}).get('lat', 0),
+            "longitude": geometry.get('location', {}).get('lng', 0)
+        }
+        
+        # Extract specific components
+        for component in address_components:
+            types = component.get('types', [])
+            value = component.get('long_name', '')
+            
+            if 'street_number' in types:
+                location_data['house_number'] = value
+            elif 'route' in types:
+                location_data['street'] = value
+            elif 'locality' in types or 'sublocality' in types:
+                location_data['city'] = value
+            elif 'administrative_area_level_1' in types:
+                location_data['state'] = value
+            elif 'country' in types:
+                location_data['country'] = value
+            elif 'postal_code' in types:
+                location_data['postal_code'] = value
+            elif 'neighborhood' in types or 'sublocality_level_1' in types:
+                location_data['neighborhood'] = value
+        
+        # Validate that we have essential components
+        essential_fields = ['city', 'state', 'country']
+        missing_essential = [field for field in essential_fields if not location_data[field]]
+        
+        if missing_essential:
+            return JsonResponse({
+                "success": False,
+                "isValid": False,
+                "error": f"Address is incomplete. Missing: {', '.join(missing_essential)}"
+            })
+        
+        return JsonResponse({
+            "success": True,
+            "isValid": True,
+            "locationData": location_data
+        })
+        
+    except Exception as e:
+        return JsonResponse({
+            "success": False,
+            "isValid": False,
+            "error": f"Validation failed: {str(e)}"
+        }, status=500)
 
