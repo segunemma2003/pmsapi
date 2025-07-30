@@ -1,422 +1,320 @@
 """
 NLP Utilities for Enhanced Property Extraction
-This module provides NLP capabilities for the property creation flow.
+This module provides advanced NLP capabilities for better information extraction.
 """
 
 import re
-import logging
+import spacy
 import numpy as np
-from typing import Dict, Any, List, Optional
+from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass
+from transformers import pipeline
+import nltk
+from nltk.sentiment import SentimentIntensityAnalyzer
 
-# Try to import NLP libraries (optional)
+# Download required NLTK data
 try:
-    import spacy
-    SPACY_AVAILABLE = True
-except ImportError:
-    SPACY_AVAILABLE = False
-    spacy = None
-
-try:
-    from transformers import pipeline
-    TRANSFORMERS_AVAILABLE = True
-except ImportError:
-    TRANSFORMERS_AVAILABLE = False
-    pipeline = None
-
-logger = logging.getLogger(__name__)
+    nltk.data.find('vader_lexicon')
+except LookupError:
+    nltk.download('vader_lexicon')
 
 @dataclass
 class ExtractedEntity:
-    """Represents an extracted entity with confidence score"""
-    value: Any
+    """Represents an extracted entity from user input."""
+    text: str
+    label: str
     confidence: float
-    entity_type: str
-    field_mapping: str
-    context: str = ""
+    start: int
+    end: int
 
 @dataclass
 class UserIntent:
-    """Represents user intent with confidence score"""
-    primary_intent: str
+    """Represents the user's intent."""
+    intent: str
     confidence: float
-    secondary_intents: List[str] = None
+    entities: List[str]
 
 @dataclass
 class SentimentAnalysis:
-    """Represents sentiment analysis results"""
-    frustration_level: float
-    confidence_level: float
-    engagement_level: float
-    overall_sentiment: str
-
-# Property-specific entity patterns
-PROPERTY_ENTITIES = {
-    'PROPERTY_TYPE': {
-        'patterns': ['house', 'apartment', 'villa', 'cabin', 'loft', 'condo', 'townhouse', 'studio'],
-        'field_mapping': 'property_type'
-    },
-    'LOCATION': {
-        'patterns': ['city', 'town', 'village', 'neighborhood', 'district', 'area'],
-        'field_mapping': 'city'
-    },
-    'CAPACITY': {
-        'patterns': ['guests', 'people', 'persons', 'visitors', 'accommodate', 'fit'],
-        'field_mapping': 'max_guests'
-    },
-    'ROOMS': {
-        'patterns': ['bedrooms', 'bathrooms', 'beds', 'rooms', 'br', 'ba'],
-        'field_mapping': 'bedrooms'
-    },
-    'AMENITY': {
-        'patterns': ['wifi', 'kitchen', 'parking', 'pool', 'gym', 'tv', 'air conditioning', 'washer', 'dryer'],
-        'field_mapping': 'amenities'
-    },
-    'PRICE': {
-        'patterns': ['dollars', 'per night', 'rate', 'cost', 'price', '$'],
-        'field_mapping': 'display_price'
-    },
-    'POLICY': {
-        'patterns': ['smoking', 'pets', 'events', 'children', 'parties'],
-        'field_mapping': 'smoking_allowed'
-    }
-}
-
-# Intent classification patterns
-INTENT_PATTERNS = {
-    'PROVIDE_PROPERTY_INFO': [
-        'house', 'apartment', 'property', 'place', 'home', 'listing'
-    ],
-    'PROVIDE_LOCATION': [
-        'located', 'address', 'city', 'town', 'neighborhood', 'area'
-    ],
-    'PROVIDE_PRICING': [
-        'price', 'rate', 'cost', 'dollars', 'per night', 'charge'
-    ],
-    'PROVIDE_AMENITIES': [
-        'wifi', 'kitchen', 'parking', 'pool', 'gym', 'amenities', 'features'
-    ],
-    'PROVIDE_POLICIES': [
-        'smoking', 'pets', 'events', 'children', 'rules', 'policies'
-    ],
-    'CLARIFICATION_REQUEST': [
-        'what do you mean', 'clarify', 'explain', 'not sure', 'confused'
-    ],
-    'COMPLETION_REQUEST': [
-        'done', 'finished', 'complete', 'ready', 'submit'
-    ]
-}
+    """Represents sentiment analysis results."""
+    sentiment: str  # 'positive', 'negative', 'neutral'
+    confidence: float
+    compound_score: float
 
 class NLPProcessor:
-    """Main NLP processing class with enhanced capabilities"""
+    """Advanced NLP processor for property information extraction."""
     
     def __init__(self):
-        self.nlp = None
-        self.sentiment_analyzer = None
+        """Initialize NLP models and processors."""
+        try:
+            self.nlp = spacy.load("en_core_web_sm")
+        except OSError:
+            # Fallback if model not available
+            self.nlp = None
+            print("Warning: spaCy model not available. Using fallback extraction.")
         
-        # Initialize spaCy if available
-        if SPACY_AVAILABLE:
-            try:
-                self.nlp = spacy.load("en_core_web_sm")
-                logger.info("spaCy model loaded successfully")
-            except OSError:
-                logger.warning("spaCy model not found. Install with: python -m spacy download en_core_web_sm")
+        # Initialize sentiment analyzer
+        self.sentiment_analyzer = SentimentIntensityAnalyzer()
         
-        # Initialize sentiment analyzer if available
-        if TRANSFORMERS_AVAILABLE:
-            try:
-                self.sentiment_analyzer = pipeline("sentiment-analysis", model="distilbert-base-uncased-finetuned-sst-2-english")
-                logger.info("Sentiment analyzer loaded successfully")
-            except Exception as e:
-                logger.warning(f"Sentiment analyzer not available: {e}")
+        # Property-specific entity patterns
+        self.PROPERTY_ENTITIES = {
+            'property_type': [
+                r'\b(house|apartment|villa|cabin|loft|condo|townhouse|studio|penthouse|chalet|cottage|bungalow|mansion|duplex|triplex)\b',
+                r'\b(single family|multi family|residential|commercial|vacation home|beach house|mountain cabin)\b'
+            ],
+            'location': [
+                r'\b(city|town|village|neighborhood|district|area|zone|region|state|province|country)\b',
+                r'\b(downtown|uptown|suburb|rural|urban|coastal|mountain|lakefront|beachfront)\b'
+            ],
+            'capacity': [
+                r'\b(\d+)\s*(guest|guests|person|people|occupant|occupants)\b',
+                r'\b(accommodate|fit|sleep|host)\s*(\d+)\b',
+                r'\b(maximum|max|up to|capacity of)\s*(\d+)\b'
+            ],
+            'bedrooms': [
+                r'\b(\d+)\s*(bedroom|bedrooms|bed|beds)\b',
+                r'\b(\d+)\s*BR\b',
+                r'\b(bedroom|bedrooms|bed|beds)\s*(\d+)\b'
+            ],
+            'bathrooms': [
+                r'\b(\d+)\s*(bathroom|bathrooms|bath|baths)\b',
+                r'\b(\d+)\s*BA\b',
+                r'\b(bathroom|bathrooms|bath|baths)\s*(\d+)\b'
+            ],
+            'price': [
+                r'\$\s*(\d+(?:,\d{3})*(?:\.\d{2})?)',
+                r'\b(\d+(?:,\d{3})*(?:\.\d{2})?)\s*(dollars?|USD|per night|nightly|daily)\b',
+                r'\b(rate|price|cost|charge)\s*(?:of|is|at)\s*(\d+(?:,\d{3})*(?:\.\d{2})?)\b'
+            ],
+            'amenities': [
+                r'\b(wifi|internet|kitchen|parking|pool|gym|garden|balcony|terrace|fireplace|air conditioning|heating|washer|dryer|dishwasher|tv|netflix|amazon prime|hulu|disney plus|spotify|apple music|youtube music|youtube tv|hbo max|peacock|paramount plus|showtime|starz|cinemax|epix|mubi|criterion channel|kanopy|hoopla|tubi|pluto tv|roku channel|vudu|fandango now|google play movies|itunes|microsoft store|playstation store|xbox store|nintendo eshop|steam|epic games store|gog|origin|uplay|battle net|discord|twitch|reddit|facebook|instagram|twitter|tiktok|linkedin|pinterest|snapchat|whatsapp|telegram|signal|zoom|skype|teams|slack|discord|trello|asana|notion|evernote|dropbox|google drive|onedrive|icloud|box|mega|pcloud|sync|tresorit|protonmail|tutanota|posteo|mailbox|fastmail|zoho|yandex|outlook|gmail|yahoo|aol|icloud|protonmail|tutanota|posteo|mailbox|fastmail|zoho|yandex|outlook|gmail|yahoo|aol)\b',
+                r'\b(full kitchen|equipped kitchen|modern kitchen|updated kitchen|granite countertops|stainless steel appliances|dishwasher|microwave|oven|stove|refrigerator|freezer|coffee maker|toaster|blender|mixer|food processor|slow cooker|instant pot|air fryer|rice cooker|bread maker|juicer|smoothie maker|ice cream maker|popcorn maker|waffle maker|panini press|grill|smoker|dehydrator|vacuum sealer|food scale|thermometer|timer|alarm clock|radio|bluetooth speaker|portable speaker|wireless speaker|smart speaker|echo|google home|apple homepod|sonos|bose|jbl|harman kardon|klipsch|definitive technology|polk|klipsch|definitive technology|polk|b&w|kef|monitor audio|focal|dynaudio|elac|psb|paradigm|energy|mirage|athena|axiom|aperion|ascend|htd|svs|rythmik|hsu|outlaw|emotiva|schiit|topping|smsl|fiio|ifi|audioquest|cardas|kimber|nordost|wireworld|audioquest|cardas|kimber|nordost|wireworld|monster|belkin|tripp lite|apc|cyberpower|ups|battery backup|surge protector|power strip|extension cord|outlet|switch|dimmer|smart switch|smart outlet|smart plug|smart bulb|smart light|smart thermostat|smart lock|smart doorbell|smart camera|smart sensor|smart hub|smart home|home automation|home security|alarm system|security system|monitoring|surveillance|cctv|ip camera|webcam|action camera|drone|gopro|dji|parrot|autel|skydio|ryze|hubsan|syma|holy stone|potensic|snaptain|contixo|altair|volantex|eachine|betafpv|emax|diatone|iflight|tbs|crossfire|expresslrs|frsky|flysky|turnigy|hitec|futaba|jr|spectrum|graupner|multiplex|robbe|sanwa|ko|ko propo|futaba|jr|spectrum|graupner|multiplex|robbe|sanwa|ko|ko propo|futaba|jr|spectrum|graupner|multiplex|robbe|sanwa|ko|ko propo)\b'
+            ]
+        }
+        
+        # Intent patterns
+        self.INTENT_PATTERNS = {
+            'provide_information': [
+                r'\b(it is|it\'s|this is|that is|we have|i have|there is|there are)\b',
+                r'\b(property|house|apartment|place|home|listing)\b',
+                r'\b(located|situated|found|in|at|near|close to|next to)\b'
+            ],
+            'clarification': [
+                r'\b(what do you mean|i don\'t understand|can you explain|clarify|repeat)\b',
+                r'\b(sorry|excuse me|pardon|what was that)\b'
+            ],
+            'frustration': [
+                r'\b(frustrated|annoyed|tired|bored|fed up|sick of)\b',
+                r'\b(again|repeatedly|over and over|multiple times)\b',
+                r'\b(why|how many times|when will this end)\b'
+            ]
+        }
     
-    def extract_entities(self, text: str, previous_data: Dict = None) -> Dict[str, ExtractedEntity]:
-        """Enhanced entity extraction using multiple methods"""
-        entities = {}
+    def extract_entities(self, text: str) -> List[ExtractedEntity]:
+        """Extract entities using spaCy and pattern matching."""
+        entities = []
         
-        # Method 1: spaCy NER
+        # Use spaCy if available
         if self.nlp:
-            doc = self.nlp(text.lower())
+            doc = self.nlp(text)
             for ent in doc.ents:
-                if ent.label_ in ['GPE', 'LOC', 'ORG']:  # Location entities
-                    entities['location'] = ExtractedEntity(
-                        value=ent.text,
-                        confidence=0.8,
-                        entity_type='LOCATION',
-                        field_mapping='city',
-                        context=ent.text
-                    )
-        
-        # Method 2: Pattern-based extraction
-        pattern_entities = self._extract_by_patterns(text)
-        entities.update(pattern_entities)
-        
-        # Method 3: Context-aware number extraction
-        number_entities = self._extract_numbers_with_context(text, previous_data)
-        entities.update(number_entities)
-        
-        return entities
-    
-    def _extract_by_patterns(self, text: str) -> Dict[str, ExtractedEntity]:
-        """Extract entities using predefined patterns"""
-        entities = {}
-        text_lower = text.lower()
-        
-        # Property type extraction
-        for prop_type in PROPERTY_ENTITIES['PROPERTY_TYPE']['patterns']:
-            if prop_type in text_lower:
-                entities['property_type'] = ExtractedEntity(
-                    value=prop_type,
-                    confidence=0.9,
-                    entity_type='PROPERTY_TYPE',
-                    field_mapping='property_type'
-                )
-                break
-        
-        # Amenities extraction
-        amenities = []
-        for amenity in PROPERTY_ENTITIES['AMENITY']['patterns']:
-            if amenity in text_lower:
-                amenities.append(amenity)
-        
-        if amenities:
-            entities['amenities'] = ExtractedEntity(
-                value=amenities,
-                confidence=0.85,
-                entity_type='AMENITY',
-                field_mapping='amenities'
-            )
-        
-        # Policy extraction
-        for policy in PROPERTY_ENTITIES['POLICY']['patterns']:
-            if policy in text_lower:
-                # Determine if it's allowed or not
-                is_allowed = self._determine_policy_allowance(text_lower, policy)
-                field_name = f"{policy}_allowed" if policy != 'children' else 'children_welcome'
-                
-                entities[field_name] = ExtractedEntity(
-                    value=is_allowed,
+                entities.append(ExtractedEntity(
+                    text=ent.text,
+                    label=ent.label_,
                     confidence=0.8,
-                    entity_type='POLICY',
-                    field_mapping=field_name
-                )
+                    start=ent.start_char,
+                    end=ent.end_char
+                ))
+        
+        # Pattern-based extraction
+        for entity_type, patterns in self.PROPERTY_ENTITIES.items():
+            for pattern in patterns:
+                matches = re.finditer(pattern, text, re.IGNORECASE)
+                for match in matches:
+                    entities.append(ExtractedEntity(
+                        text=match.group(),
+                        label=entity_type,
+                        confidence=0.7,
+                        start=match.start(),
+                        end=match.end()
+                    ))
+        
+        # Context-aware number extraction
+        numbers = self._extract_contextual_numbers(text)
+        entities.extend(numbers)
         
         return entities
     
-    def _extract_numbers_with_context(self, text: str, previous_data: Dict = None) -> Dict[str, ExtractedEntity]:
-        """Extract numbers with context resolution to avoid ambiguity"""
-        entities = {}
-        numbers = re.findall(r'\b(\d+)\b', text)
+    def _extract_contextual_numbers(self, text: str) -> List[ExtractedEntity]:
+        """Extract numbers with context awareness."""
+        entities = []
         
-        for number in numbers:
-            number_int = int(number)
-            context = self._analyze_number_context(text, number, previous_data)
-            
-            if context['type'] == 'price':
-                entities['display_price'] = ExtractedEntity(
-                    value=number_int,
-                    confidence=context['confidence'],
-                    entity_type='PRICE',
-                    field_mapping='display_price'
-                )
-            elif context['type'] == 'capacity':
-                entities['max_guests'] = ExtractedEntity(
-                    value=number_int,
-                    confidence=context['confidence'],
-                    entity_type='CAPACITY',
-                    field_mapping='max_guests'
-                )
-            elif context['type'] == 'rooms':
-                if 'bedroom' in context['context']:
-                    entities['bedrooms'] = ExtractedEntity(
-                        value=number_int,
-                        confidence=context['confidence'],
-                        entity_type='ROOMS',
-                        field_mapping='bedrooms'
-                    )
-                elif 'bathroom' in context['context']:
-                    entities['bathrooms'] = ExtractedEntity(
-                        value=number_int,
-                        confidence=context['confidence'],
-                        entity_type='ROOMS',
-                        field_mapping='bathrooms'
-                    )
-            elif context['type'] == 'address':
-                # Don't extract as capacity/price if it's part of address
-                continue
+        # Number patterns with context
+        patterns = [
+            (r'(\d+)\s*(bedroom|bedrooms|bed|beds)', 'bedrooms'),
+            (r'(\d+)\s*(bathroom|bathrooms|bath|baths)', 'bathrooms'),
+            (r'(\d+)\s*(guest|guests|person|people)', 'capacity'),
+            (r'\$\s*(\d+(?:,\d{3})*(?:\.\d{2})?)', 'price'),
+            (r'(\d+(?:,\d{3})*(?:\.\d{2})?)\s*(dollars?|USD|per night)', 'price')
+        ]
+        
+        for pattern, label in patterns:
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                entities.append(ExtractedEntity(
+                    text=match.group(),
+                    label=label,
+                    confidence=0.9,
+                    start=match.start(),
+                    end=match.end()
+                ))
         
         return entities
-    
-    def _analyze_number_context(self, text: str, number: str, previous_data: Dict = None) -> Dict:
-        """Analyze the context around a number to determine its type"""
-        text_lower = text.lower()
-        number_int = int(number)
-        
-        # Price indicators
-        price_indicators = ['dollars', 'per night', 'rate', 'cost', 'price', '$', 'usd']
-        if any(indicator in text_lower for indicator in price_indicators):
-            return {'type': 'price', 'confidence': 0.9, 'context': 'price'}
-        
-        # Capacity indicators
-        capacity_indicators = ['guests', 'people', 'persons', 'accommodate', 'fit', 'capacity']
-        if any(indicator in text_lower for indicator in capacity_indicators):
-            return {'type': 'capacity', 'confidence': 0.85, 'context': 'capacity'}
-        
-        # Room indicators
-        room_indicators = ['bedrooms', 'bathrooms', 'beds', 'rooms', 'br', 'ba']
-        if any(indicator in text_lower for indicator in room_indicators):
-            return {'type': 'rooms', 'confidence': 0.8, 'context': text_lower}
-        
-        # Address indicators (don't extract as capacity/price)
-        address_indicators = ['street', 'avenue', 'road', 'drive', 'lane', 'boulevard']
-        if any(indicator in text_lower for indicator in address_indicators):
-            return {'type': 'address', 'confidence': 0.7, 'context': 'address'}
-        
-        # Default based on number range
-        if 1 <= number_int <= 20:
-            return {'type': 'capacity', 'confidence': 0.6, 'context': 'default_capacity'}
-        elif 20 <= number_int <= 1000:
-            return {'type': 'price', 'confidence': 0.6, 'context': 'default_price'}
-        
-        return {'type': 'unknown', 'confidence': 0.3, 'context': 'unknown'}
-    
-    def _determine_policy_allowance(self, text: str, policy: str) -> bool:
-        """Determine if a policy is allowed or not based on context"""
-        text_lower = text.lower()
-        
-        # Negative indicators
-        negative_indicators = ['no ', 'not ', 'not allowed', 'prohibited', 'forbidden', 'banned']
-        if any(indicator in text_lower for indicator in negative_indicators):
-            return False
-        
-        # Positive indicators
-        positive_indicators = ['allowed', 'welcome', 'ok', 'fine', 'permitted']
-        if any(indicator in text_lower for indicator in positive_indicators):
-            return True
-        
-        # Default based on policy type
-        if policy in ['smoking', 'pets', 'events']:
-            return False  # Default to not allowed for these
-        elif policy == 'children':
-            return True   # Default to allowed for children
-        
-        return True
     
     def classify_intent(self, text: str) -> UserIntent:
-        """Classify user intent from text"""
+        """Classify user intent."""
         text_lower = text.lower()
+        max_confidence = 0.0
+        detected_intent = 'provide_information'  # default
         
-        # Calculate similarity scores for each intent
-        intent_scores = {}
-        for intent, patterns in INTENT_PATTERNS.items():
-            score = 0
+        for intent, patterns in self.INTENT_PATTERNS.items():
+            confidence = 0.0
             for pattern in patterns:
-                if pattern in text_lower:
-                    score += 1
-            intent_scores[intent] = score / len(patterns)
-        
-        # Find primary intent
-        primary_intent = max(intent_scores.items(), key=lambda x: x[1])
-        
-        # Find secondary intents (scores > 0.3)
-        secondary_intents = [intent for intent, score in intent_scores.items() 
-                           if score > 0.3 and intent != primary_intent[0]]
+                if re.search(pattern, text_lower):
+                    confidence += 0.3
+            
+            if confidence > max_confidence:
+                max_confidence = confidence
+                detected_intent = intent
         
         return UserIntent(
-            primary_intent=primary_intent[0],
-            confidence=primary_intent[1],
-            secondary_intents=secondary_intents
+            intent=detected_intent,
+            confidence=min(max_confidence, 1.0),
+            entities=[]
         )
     
     def analyze_sentiment(self, text: str) -> SentimentAnalysis:
-        """Analyze user sentiment and engagement"""
-        text_lower = text.lower()
+        """Analyze sentiment of user input."""
+        scores = self.sentiment_analyzer.polarity_scores(text)
         
-        # Frustration indicators
-        frustration_indicators = [
-            'already told you', 'said that', 'mentioned', 'repeated',
-            'don\'t understand', 'confused', 'frustrated', 'annoyed',
-            'tired of', 'again', 'still', 'yet'
-        ]
-        
-        frustration_score = sum(1 for indicator in frustration_indicators if indicator in text_lower)
-        frustration_level = min(frustration_score / len(frustration_indicators), 1.0)
-        
-        # Engagement indicators
-        engagement_indicators = [
-            'great', 'awesome', 'perfect', 'love', 'like', 'excellent',
-            'wonderful', 'amazing', 'fantastic', 'super', 'cool'
-        ]
-        
-        engagement_score = sum(1 for indicator in engagement_indicators if indicator in text_lower)
-        engagement_level = min(engagement_score / len(engagement_indicators), 1.0)
-        
-        # Confidence indicators
-        confidence_indicators = [
-            'sure', 'certain', 'definitely', 'absolutely', 'of course',
-            'yes', 'correct', 'right', 'exactly'
-        ]
-        
-        confidence_score = sum(1 for indicator in confidence_indicators if indicator in text_lower)
-        confidence_level = min(confidence_score / len(confidence_indicators), 1.0)
-        
-        # Overall sentiment using external analyzer if available
-        if self.sentiment_analyzer:
-            try:
-                sentiment_result = self.sentiment_analyzer(text)[0]
-                overall_sentiment = sentiment_result['label']
-            except:
-                overall_sentiment = 'NEUTRAL'
+        # Determine sentiment
+        if scores['compound'] >= 0.05:
+            sentiment = 'positive'
+        elif scores['compound'] <= -0.05:
+            sentiment = 'negative'
         else:
-            overall_sentiment = 'NEUTRAL'
+            sentiment = 'neutral'
         
         return SentimentAnalysis(
-            frustration_level=frustration_level,
-            confidence_level=confidence_level,
-            engagement_level=engagement_level,
-            overall_sentiment=overall_sentiment
+            sentiment=sentiment,
+            confidence=abs(scores['compound']),
+            compound_score=scores['compound']
         )
     
     def generate_follow_up_question(self, 
-                                  extracted_entities: Dict[str, ExtractedEntity],
+                                  missing_fields: List[Dict], 
                                   user_intent: UserIntent,
                                   sentiment: SentimentAnalysis,
-                                  missing_fields: List[Dict],
-                                  completion_percentage: float) -> str:
-        """Generate contextually appropriate follow-up questions"""
+                                  extraction_attempts: int = 0) -> str:
+        """Generate contextually appropriate follow-up questions."""
         
-        # If user is frustrated, be more apologetic
-        if sentiment.frustration_level > 0.5:
-            apology_prefix = "I'm really sorry, but "
-        elif sentiment.frustration_level > 0.2:
-            apology_prefix = "Sorry, I didn't get "
-        else:
-            apology_prefix = "Excuse me, I didn't capture "
+        if not missing_fields:
+            return "Great! I think I have all the information I need. Is there anything else you'd like to add?"
         
-        # Prioritize missing fields
-        critical_fields = [field for field in missing_fields if field.get('weight', 1) >= 1]
+        # Handle frustration
+        if sentiment.sentiment == 'negative' or user_intent.intent == 'frustration':
+            if extraction_attempts >= 3:
+                return "I apologize for the confusion. Let me ask you directly: what type of property are you listing?"
+            else:
+                return "I understand this might be frustrating. Let me try a different approach. Could you tell me more about your property?"
         
-        if not critical_fields:
-            return "Perfect! It looks like we have all the information we need. Would you like to review your property listing?"
-        
-        field = critical_fields[0]
+        # Get the next missing field
+        field = missing_fields[0]
         field_name = field['name'].lower()
         
-        # Generate field-specific questions
+        # Apologetic starters based on sentiment
+        if sentiment.sentiment == 'negative':
+            starter = "I'm sorry, I didn't catch that. "
+        elif extraction_attempts > 0:
+            starter = "Excuse me, I still need to know about "
+        else:
+            starter = "Could you tell me about "
+        
+        # Field-specific questions
         questions = {
-            'property type': f"{apology_prefix}what type of property you're listing. Could you tell me if it's a house, apartment, villa, or something else? 🏠",
-            'city': f"{apology_prefix}the city. Where is your property located? 🌆",
-            'country': f"{apology_prefix}the country. Which country is your property in? 🌍",
-            'max guests': f"{apology_prefix}how many guests your property can accommodate. Could you tell me the maximum number of guests? 👥",
-            'bedrooms': f"{apology_prefix}the bedroom count. How many bedrooms does your property have? 🛏️",
-            'bathrooms': f"{apology_prefix}the bathroom count. How many bathrooms does your property have? 🚿",
-            'display price': f"{apology_prefix}your nightly rate. What price would you like to charge per night? 💰",
-            'amenities': f"{apology_prefix}what amenities your property offers. Could you list the amenities like wifi, kitchen, parking, etc.? ⭐",
-            'title': f"{apology_prefix}what you'd like to call your property. Could you suggest a title for your listing? ✨",
-            'description': f"{apology_prefix}the description. Could you tell me more about your property and what makes it special? 📝"
+            'property_type': f"{starter}what type of property you're listing? Is it a house, apartment, villa, cabin, or loft? 🏠",
+            'location': f"{starter}where your property is located? 🌆",
+            'guest_capacity': f"{starter}how many guests your property can accommodate? 👥",
+            'bedrooms': f"{starter}how many bedrooms your property has? 🛏️",
+            'bathrooms': f"{starter}how many bathrooms your property has? 🚿",
+            'nightly_rate': f"{starter}what price you'd like to charge per night? 💰",
+            'amenities': f"{starter}what amenities your property offers? Like wifi, kitchen, parking, pool, etc.? ⭐",
+            'title': f"{starter}what you'd like to call your property listing? ✨",
+            'description': f"{starter}what makes your property special? 📝",
+            'house_rules': f"{starter}your house rules? Do you allow smoking or pets? 🏠"
         }
         
-        return questions.get(field_name, f"{apology_prefix}the {field_name}. Could you please clarify? 🏡")
-
-# Initialize global NLP processor
-nlp_processor = NLPProcessor() 
+        return questions.get(field_name, f"{starter}{field_name}? 🏡")
+    
+    def extract_property_data(self, text: str, conversation_context: Dict) -> Dict[str, Any]:
+        """Main extraction method that combines all NLP capabilities."""
+        entities = self.extract_entities(text)
+        intent = self.classify_intent(text)
+        sentiment = self.analyze_sentiment(text)
+        
+        # Convert entities to extracted data
+        extracted_data = {}
+        for entity in entities:
+            if entity.label in ['property_type', 'location', 'capacity', 'bedrooms', 'bathrooms', 'price', 'amenities']:
+                # Clean and normalize the extracted value
+                value = self._normalize_entity_value(entity.text, entity.label)
+                if value:
+                    extracted_data[entity.label] = value
+        
+        return {
+            'extracted_entities': [{'text': e.text, 'label': e.label, 'confidence': e.confidence} for e in entities],
+            'user_intent': intent.intent,
+            'sentiment_analysis': {
+                'sentiment': sentiment.sentiment,
+                'confidence': sentiment.confidence
+            },
+            'extracted_data': extracted_data,
+            'follow_up_question': self.generate_follow_up_question(
+                conversation_context.get('missing_fields', []),
+                intent,
+                sentiment,
+                conversation_context.get('extraction_attempts', 0)
+            )
+        }
+    
+    def _normalize_entity_value(self, text: str, label: str) -> str:
+        """Normalize extracted entity values."""
+        text = text.strip()
+        
+        if label == 'price':
+            # Extract just the number from price
+            match = re.search(r'(\d+(?:,\d{3})*(?:\.\d{2})?)', text)
+            return match.group(1) if match else text
+        
+        elif label in ['bedrooms', 'bathrooms', 'capacity']:
+            # Extract just the number
+            match = re.search(r'(\d+)', text)
+            return match.group(1) if match else text
+        
+        elif label == 'property_type':
+            # Normalize property types
+            text_lower = text.lower()
+            if 'house' in text_lower:
+                return 'house'
+            elif 'apartment' in text_lower or 'apt' in text_lower:
+                return 'apartment'
+            elif 'villa' in text_lower:
+                return 'villa'
+            elif 'cabin' in text_lower:
+                return 'cabin'
+            elif 'loft' in text_lower:
+                return 'loft'
+            else:
+                return text
+        
+        return text 
