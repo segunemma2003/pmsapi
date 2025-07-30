@@ -1,5 +1,5 @@
-# Multi-stage build to optimize AI/ML dependencies
-FROM python:3.11-slim as base
+# Production Dockerfile without AI dependencies for faster builds
+FROM python:3.11-slim
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -16,27 +16,16 @@ RUN apt-get update \
     libpq-dev \
     curl \
     gettext \
-    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Set work directory
 WORKDIR /app
 
-# Stage 1: Install core dependencies
-FROM base as core-deps
+RUN mkdir -p /app/logs && chmod 777 /app/logs
+
+# Install only core dependencies (no AI/ML packages)
 COPY requirements.core.txt ./
 RUN pip install --no-cache-dir -r requirements.core.txt
-
-# Stage 2: Install AI/ML dependencies (optional, can be skipped)
-FROM core-deps as ai-deps
-COPY requirements.ai.txt ./
-# Use CPU-only versions to avoid CUDA dependencies
-RUN pip install --no-cache-dir -r requirements.ai.txt
-
-# Stage 3: Final application
-FROM ai-deps as final
-
-RUN mkdir -p /app/logs && chmod 777 /app/logs
 
 # Copy project
 COPY . .
@@ -55,4 +44,4 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/api/health/ || exit 1
 
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "4", "--timeout", "120", "pms.wsgi:application"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "4", "--timeout", "120", "pms.wsgi:application"] 

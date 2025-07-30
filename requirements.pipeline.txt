@@ -1,0 +1,41 @@
+# Pipeline-optimized requirements (no heavy AI/ML packages)
+# Core Django and application dependencies only
+
+Django
+djangorestframework
+django-cors-headers
+celery
+redis
+psycopg2-binary
+python-decouple
+requests
+django-filter
+djoser
+djangorestframework-simplejwt
+pyjwt
+django-extensions
+gunicorn
+whitenoise
+pillow
+boto3
+django-storages
+sendgrid
+icalendar
+pytz
+gevent
+sentry-sdk[django]
+django-prometheus
+django-redis
+hiredis
+django-security
+django-csp
+django-celery-beat
+
+# Lightweight alternatives for AI features
+# Note: AI features will be disabled in pipeline builds
+openai
+googlemaps
+
+# Minimal data processing (no heavy ML)
+numpy
+pandas 

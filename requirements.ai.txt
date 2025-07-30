@@ -1,0 +1,24 @@
+# AI/ML dependencies with CPU-only versions to avoid CUDA build issues
+# Core AI packages
+openai
+googlemaps
+
+# NLP packages (CPU-only versions)
+spacy
+transformers
+nltk
+
+# Machine Learning (CPU-only versions)
+torch+cpu
+torchvision+cpu
+torchaudio+cpu
+scikit-learn
+numpy
+pandas
+
+# Additional NLP utilities
+textblob
+pattern
+
+# Note: Install spacy language model separately if needed:
+# RUN python -m spacy download en_core_web_sm 
