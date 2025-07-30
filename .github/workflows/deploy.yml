@@ -92,6 +92,7 @@ jobs:
             SENDGRID_API_KEY=${{ secrets.SENDGRID_API_KEY }}
             DEFAULT_FROM_EMAIL=noreply@oifyk.com
             OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+            GOOGLE_MAPS_API_KEY= ${{ secrets.GOOGLE_MAPS_API_KEY }}
 
             USE_S3=False
 

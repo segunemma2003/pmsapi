@@ -59,6 +59,7 @@ LOCAL_APPS = [
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 OPENAI_API_KEY=config('OPENAI_API_KEY',default='')
+GOOGLE_MAPS_API_KEY=config('GOOGLE_MAPS_API_KEY', default="")
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',

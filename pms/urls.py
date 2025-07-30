@@ -11,6 +11,7 @@ from trust_levels.views import TrustedNetworkInvitationViewSet
 from trust_levels.views import TrustLevelDefinitionViewSet, OwnerTrustedNetworkViewSet
 from analytics.views import AnalyticsViewSet
 from properties.views import AIPropertyExtractView
+from properties.openai_views import flexible_conversation_extract, validate_address
 
 
 router = DefaultRouter()
@@ -38,4 +39,6 @@ urlpatterns = [
     # Custom property endpoints
     path('api/properties/<uuid:pk>/ical/', PropertyViewSet.as_view({'get': 'ical_export'}), name='property-ical'),
      path('api/ai/ai-extract/', AIPropertyExtractView.as_view(), name='ai-property-extract'),
+        path('api/ai/flexible-conversation-extract/', flexible_conversation_extract, name='flexible_conversation_extract'),
+    path('api/validate-address/', validate_address, name='validate_address'),
 ]

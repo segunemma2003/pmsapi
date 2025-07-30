@@ -2236,3 +2236,5 @@ Return as JSON:
                 "question": ai_content.strip() if ai_content.strip() else "Tell me more about your property!",
                 "error": "Could not parse AI response"
             }
+
+
