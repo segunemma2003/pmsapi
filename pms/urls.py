@@ -38,8 +38,8 @@ urlpatterns = [
     
     # Custom property endpoints
     path('api/properties/<uuid:pk>/ical/', PropertyViewSet.as_view({'get': 'ical_export'}), name='property-ical'),
-     path('api/ai/ai-extract/', AIPropertyExtractView.as_view(), name='ai-property-extract'),
-        path('api/ai/flexible-conversation-extract/', flexible_conversation_extract, name='flexible_conversation_extract'),
-    path('api/ai/enhanced-property-extraction/', views.AIPropertyExtractView.as_view(), name='enhanced_property_extraction'),
+    path('api/ai/ai-extract/', AIPropertyExtractView.as_view(), name='ai-property-extract'),
+    path('api/ai/flexible-conversation-extract/', flexible_conversation_extract, name='flexible_conversation_extract'),
+    path('api/ai/enhanced-property-extraction/', AIPropertyExtractView.as_view(), name='enhanced_property_extraction'),
     path('api/validate-address/', validate_address, name='validate_address'),
 ]

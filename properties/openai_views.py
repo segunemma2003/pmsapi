@@ -15,8 +15,15 @@ except ImportError:
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
-import openai
-from openai import OpenAI
+try:
+    import openai
+    from openai import OpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    openai = None
+    OpenAI = None
+    OPENAI_AVAILABLE = False
+    print("Warning: openai package not available. AI features will not work.")
 
 # Initialize Google Maps client
 GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY')
@@ -27,7 +34,7 @@ if GOOGLE_MAPS_API_KEY and googlemaps:
 # Initialize OpenAI client
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 client = None
-if OPENAI_API_KEY:
+if OPENAI_API_KEY and OPENAI_AVAILABLE:
     client = OpenAI(api_key=OPENAI_API_KEY)
 
 def validate_trust_level_discounts(extracted_data):
@@ -118,7 +125,7 @@ Respond in this format:
     "reasoning": "Why you chose this response"
 }}"""
 
-        # Call OpenAI
+        # Check if OpenAI client is available
         if not client:
             return JsonResponse({
                 "success": False,

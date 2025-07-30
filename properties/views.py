@@ -5,7 +5,7 @@ from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Q, Count
 from django.core.cache import cache
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from datetime import datetime, timedelta
 from django.utils import timezone
 import uuid
@@ -16,8 +16,16 @@ import json
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-import openai
+try:
+    import openai
+    OPENAI_AVAILABLE = True
+except ImportError:
+    openai = None
+    OPENAI_AVAILABLE = False
+    print("Warning: openai package not available. AI features will not work.")
 from django.conf import settings
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
 
 # Import models and components
 from .models import Property, PropertyImage, SavedProperty
@@ -30,7 +38,15 @@ from .serializers import (
 )
 from .filters import PropertyFilter
 
-from openai import OpenAI
+# Conditional OpenAI import
+try:
+    from openai import OpenAI
+    OPENAI_CLIENT_AVAILABLE = True
+except ImportError:
+    OpenAI = None
+    OPENAI_CLIENT_AVAILABLE = False
+    print("Warning: OpenAI client not available. AI features will not work.")
+
 import re
 from typing import Dict, List, Any
 
@@ -45,11 +61,25 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Initialize Google Maps client conditionally
+try:
+    import googlemaps
+    GOOGLE_MAPS_API_KEY = getattr(settings, 'GOOGLE_MAPS_API_KEY', None)
+    gmaps = None
+    if GOOGLE_MAPS_API_KEY:
+        gmaps = googlemaps.Client(key=GOOGLE_MAPS_API_KEY)
+except ImportError:
+    googlemaps = None
+    gmaps = None
+    print("Warning: googlemaps package not available. Address validation will not work.")
 
-GOOGLE_MAPS_API_KEY = settings.GOOGLE_MAPS_API_KEY
-gmaps = googlemaps.Client(key=GOOGLE_MAPS_API_KEY)
-OPENAI_API_KEY= settings.OPENAI_API_KEY
-openai.api_key = OPENAI_API_KEY
+# Initialize OpenAI client
+OPENAI_API_KEY = getattr(settings, 'OPENAI_API_KEY', None)
+openai_client = None
+if OPENAI_API_KEY and OPENAI_AVAILABLE and OPENAI_CLIENT_AVAILABLE:
+    openai_client = OpenAI(api_key=OPENAI_API_KEY)
+elif openai:
+    openai.api_key = OPENAI_API_KEY
 
 if NLP_AVAILABLE:
     nlp_processor = NLPProcessor()
@@ -1544,8 +1574,6 @@ class AIPropertyExtractView(APIView):
         if not user_text:
             return Response({"error": "No text provided."}, status=status.HTTP_400_BAD_REQUEST)
 
-        client = OpenAI(api_key=settings.OPENAI_API_KEY)
-
         prompt = f"""
 You are an expert property listing assistant. Extract comprehensive information from this property description:
 
@@ -1613,7 +1641,13 @@ EXTRACTION RULES:
 """
 
         try:
-            response = client.chat.completions.create(
+            # Check if OpenAI client is available
+            if not openai_client:
+                return Response({
+                    "error": "AI service is not configured. Please contact support."
+                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            
+            response = openai_client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=1200,
@@ -1641,8 +1675,6 @@ EXTRACTION RULES:
         
         if not current_response:
             return Response({"error": "Current response required"}, status=status.HTTP_400_BAD_REQUEST)
-        
-        client = OpenAI(api_key=settings.OPENAI_API_KEY)
         
         # Build conversation context
         conversation_context = ""
@@ -1742,7 +1774,13 @@ EXTRACTION RULES:
     """
 
         try:
-            response = client.chat.completions.create(
+            # Check if OpenAI client is available
+            if not openai_client:
+                return Response({
+                    "error": "AI service is not configured. Please contact support."
+                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            
+            response = openai_client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=800,
@@ -1784,8 +1822,6 @@ EXTRACTION RULES:
         missing_fields_detail = request.data.get("missing_fields_detail", [])
         current_data_summary = request.data.get("current_data_summary", "")
         last_user_response = request.data.get("last_user_response", "")
-        
-        client = OpenAI(api_key=settings.OPENAI_API_KEY)
         
         # Build enhanced context from conversation
         conversation_context = ""
@@ -1858,7 +1894,13 @@ EXTRACTION RULES:
     """
 
         try:
-            response = client.chat.completions.create(
+            # Check if OpenAI client is available
+            if not openai_client:
+                return Response({
+                    "error": "AI service is not configured. Please contact support."
+                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            
+            response = openai_client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=150,
@@ -1894,7 +1936,6 @@ EXTRACTION RULES:
         conversation_context = request.data.get("conversation_context", "")
         style = request.data.get("style", "conversational")
         
-        client = OpenAI(api_key=settings.OPENAI_API_KEY)
         property_context = self._build_property_context(property_data)
         
         prompt = f"""
@@ -1933,7 +1974,13 @@ Return as JSON:
 """
 
         try:
-            response = client.chat.completions.create(
+            # Check if OpenAI client is available
+            if not openai_client:
+                return Response({
+                    "error": "AI service is not configured. Please contact support."
+                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            
+            response = openai_client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=500,
@@ -1965,7 +2012,6 @@ Return as JSON:
         conversation_context = request.data.get("conversation_context", "")
         style = request.data.get("style", "engaging")
         
-        client = OpenAI(api_key=settings.OPENAI_API_KEY)
         property_context = self._build_property_context(property_data)
         
         prompt = f"""
@@ -2009,7 +2055,13 @@ Return as JSON:
 """
 
         try:
-            response = client.chat.completions.create(
+            # Check if OpenAI client is available
+            if not openai_client:
+                return Response({
+                    "error": "AI service is not configured. Please contact support."
+                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            
+            response = openai_client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=800,
@@ -2391,6 +2443,14 @@ def validate_address(request):
                 "success": False,
                 "isValid": False,
                 "error": "Address is required"
+            })
+        
+        # Check if Google Maps client is available
+        if not gmaps:
+            return JsonResponse({
+                "success": False,
+                "isValid": False,
+                "error": "Address validation service is not configured. Please contact support."
             })
         
         # Use Google Maps Geocoding API
