@@ -16,7 +16,9 @@ import openai
 
 # Initialize Google Maps client
 GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY')
-gmaps = googlemaps.Client(key=GOOGLE_MAPS_API_KEY)
+gmaps = None
+if GOOGLE_MAPS_API_KEY:
+    gmaps = googlemaps.Client(key=GOOGLE_MAPS_API_KEY)
 
 # Initialize OpenAI client
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
@@ -130,6 +132,14 @@ def validate_address(request):
                 "success": False,
                 "isValid": False,
                 "error": "Address is required"
+            })
+        
+        # Check if Google Maps client is available
+        if not gmaps:
+            return JsonResponse({
+                "success": False,
+                "isValid": False,
+                "error": "Address validation service is not configured. Please contact support."
             })
         
         # Use Google Maps Geocoding API
