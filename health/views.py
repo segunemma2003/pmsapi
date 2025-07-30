@@ -9,6 +9,16 @@ import redis
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
+def simple_health_check(request):
+    """Simple health check for CI/CD - no database access required"""
+    return Response({
+        'status': 'ok',
+        'message': 'Service is running',
+        'timestamp': timezone.now().isoformat()
+    })
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
 def health_check(request):
     """Comprehensive health check endpoint"""
     health_status = {

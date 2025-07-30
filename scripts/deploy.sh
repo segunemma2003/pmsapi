@@ -133,11 +133,39 @@ done
 echo "✅ Web service is ready"
 
 # Test final connectivity
-if curl -f http://localhost/api/health/ > /dev/null 2>&1; then
-    echo "✅ HTTP connectivity working"
+echo "🔍 Testing service health..."
+sleep 5
+
+# Test web service health (internal)
+if curl -f http://localhost:8000/api/health/ > /dev/null 2>&1; then
+    echo "✅ Web service health check passed"
 else
-    echo "⚠️ HTTP connectivity not working - checking nginx..."
+    echo "⚠️ Web service health check failed - checking logs..."
+    $DC_CMD -f docker-compose.production.yml logs web
+fi
+
+# Test external domain health check - try HTTPS first, then HTTP
+if curl -f https://api.oifyk.com/api/health/simple/ > /dev/null 2>&1; then
+    echo "✅ External domain health check passed (HTTPS)"
+elif curl -f http://api.oifyk.com/api/health/simple/ > /dev/null 2>&1; then
+    echo "✅ External domain health check passed (HTTP)"
+else
+    echo "⚠️ External domain health check failed - checking logs..."
     $DC_CMD -f docker-compose.production.yml logs nginx
+fi
+
+# Test database connectivity
+if $DC_CMD -f docker-compose.production.yml exec -T db pg_isready -U $(grep DB_USER .env.production | cut -d'=' -f2) -d $(grep DB_NAME .env.production | cut -d'=' -f2) > /dev/null 2>&1; then
+    echo "✅ Database health check passed"
+else
+    echo "⚠️ Database health check failed"
+fi
+
+# Test Redis connectivity
+if $DC_CMD -f docker-compose.production.yml exec -T redis redis-cli ping > /dev/null 2>&1; then
+    echo "✅ Redis health check passed"
+else
+    echo "⚠️ Redis health check failed"
 fi
 
 echo "🎉 Deployment completed successfully!"
@@ -146,15 +174,28 @@ echo "🎉 Deployment completed successfully!"
 echo "📊 Service status:"
 $DC_CMD -f docker-compose.production.yml ps
 
+# Check container health
+echo "🔍 Container health check:"
+containers=("oifyk_web" "oifyk_db" "oifyk_redis" "oifyk_nginx" "oifyk_celery" "oifyk_celery_beat")
+for container in "${containers[@]}"; do
+    if docker ps --format "table {{.Names}}\t{{.Status}}" | grep -q "$container"; then
+        status=$(docker ps --format "table {{.Names}}\t{{.Status}}" | grep "$container" | awk '{print $2}')
+        echo "✅ $container: $status"
+    else
+        echo "❌ $container: Not running"
+    fi
+done
+
 # Show volume status
 echo "📦 Volume status:"
 docker volume ls | grep -E "(postgres_data|redis_data)"
 
 echo ""
 echo "🌐 Your API is available at:"
-echo "  HTTP: http://api.oifyk.com"
-echo "  Admin: http://api.oifyk.com/admin/"
-echo "  Health: http://api.oifyk.com/api/health/"
+echo "  HTTPS: https://api.oifyk.com"
+echo "  Admin: https://api.oifyk.com/admin/"
+echo "  Health: https://api.oifyk.com/api/health/"
+echo "  Simple Health: https://api.oifyk.com/api/health/simple/"
 
 # Ask about SSL setup
 echo ""

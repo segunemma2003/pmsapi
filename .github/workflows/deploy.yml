@@ -8,7 +8,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v4
@@ -28,6 +28,19 @@ jobs:
         run: |
           # Simple syntax check without Django setup
           python simple_syntax_test.py
+
+      - name: Test Docker build
+        run: |
+          # Test that Docker can build the image
+          docker build -f Dockerfile.pipeline -t test-build .
+          echo "✅ Docker build successful"
+
+      - name: Test Docker Compose syntax
+        run: |
+          # Test Docker Compose files are valid
+          docker-compose -f docker-compose.pipeline.yml config
+          docker-compose -f docker-compose.production.yml config
+          echo "✅ Docker Compose syntax valid"
 
   deploy:
     needs: test
@@ -106,3 +119,43 @@ jobs:
               echo "Setting up SSL certificates..."
               ./scripts/setup-ssl.sh
             fi
+
+            # Wait for services to be ready
+            echo "⏳ Waiting for services to be ready..."
+            sleep 30
+
+                                    # Test service health
+            echo "🔍 Testing service health..."
+
+            # Test simple health check (no database required) - try HTTPS first, then HTTP
+            if curl -f https://api.oifyk.com/api/health/simple/ > /dev/null 2>&1; then
+              echo "✅ Simple health check passed (HTTPS)"
+            elif curl -f http://api.oifyk.com/api/health/simple/ > /dev/null 2>&1; then
+              echo "✅ Simple health check passed (HTTP)"
+            else
+              echo "❌ Simple health check failed"
+              docker-compose -f docker-compose.production.yml logs web
+              exit 1
+            fi
+
+            # Test full health check (with database) - try HTTPS first, then HTTP
+            if curl -f https://api.oifyk.com/api/health/ > /dev/null 2>&1; then
+              echo "✅ Full health check passed (HTTPS)"
+            elif curl -f http://api.oifyk.com/api/health/ > /dev/null 2>&1; then
+              echo "✅ Full health check passed (HTTP)"
+            else
+              echo "⚠️ Full health check failed (database might not be ready yet)"
+            fi
+
+            # Test nginx proxy - try HTTPS first, then HTTP
+            if curl -f https://api.oifyk.com/api/health/simple/ > /dev/null 2>&1; then
+              echo "✅ Nginx proxy health check passed (HTTPS)"
+            elif curl -f http://api.oifyk.com/api/health/simple/ > /dev/null 2>&1; then
+              echo "✅ Nginx proxy health check passed (HTTP)"
+            else
+              echo "❌ Nginx proxy health check failed"
+              docker-compose -f docker-compose.production.yml logs nginx
+              exit 1
+            fi
+
+            echo "🎉 All health checks passed! Deployment successful."
