@@ -18,6 +18,11 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Check Docker Compose
+        run: |
+          # Check available Docker Compose version
+          docker compose version || docker-compose --version || echo "Docker Compose not found"
+
       - name: Install Python dependencies (pipeline-optimized)
         run: |
           python -m pip install --upgrade pip
@@ -37,10 +42,19 @@ jobs:
 
       - name: Test Docker Compose syntax
         run: |
-          # Test Docker Compose files are valid
-          docker-compose -f docker-compose.pipeline.yml config
-          docker-compose -f docker-compose.production.yml config
-          echo "✅ Docker Compose syntax valid"
+          # Test Docker Compose files are valid (try both versions)
+          if docker compose version &> /dev/null; then
+            docker compose -f docker-compose.pipeline.yml config
+            docker compose -f docker-compose.production.yml config
+            echo "✅ Docker Compose syntax valid (docker compose)"
+          elif docker-compose --version &> /dev/null; then
+            docker-compose -f docker-compose.pipeline.yml config
+            docker-compose -f docker-compose.production.yml config
+            echo "✅ Docker Compose syntax valid (docker-compose)"
+          else
+            echo "❌ Docker Compose not available"
+            exit 1
+          fi
 
   deploy:
     needs: test
@@ -134,7 +148,7 @@ jobs:
               echo "✅ Simple health check passed (HTTP)"
             else
               echo "❌ Simple health check failed"
-              docker-compose -f docker-compose.production.yml logs web
+              docker compose -f docker-compose.production.yml logs web || docker-compose -f docker-compose.production.yml logs web
               exit 1
             fi
 
@@ -154,7 +168,7 @@ jobs:
               echo "✅ Nginx proxy health check passed (HTTP)"
             else
               echo "❌ Nginx proxy health check failed"
-              docker-compose -f docker-compose.production.yml logs nginx
+              docker compose -f docker-compose.production.yml logs nginx || docker-compose -f docker-compose.production.yml logs nginx
               exit 1
             fi
 
