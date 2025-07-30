@@ -29,3 +29,9 @@ django-csp
 django-celery-beat
 openai
 googlemaps
+spacy
+transformers
+torch
+scikit-learn
+numpy
+nltk
