@@ -1516,6 +1516,10 @@ class AIPropertyExtractView(APIView):
             completion_percentage = conversation_context.get('completion_percentage', 0)
             previous_responses = conversation_context.get('previous_responses', [])
             extraction_attempts = conversation_context.get('extraction_attempts', 0)
+            local_extraction_successful = conversation_context.get('local_extraction_successful', False)
+            
+            print(f"Backend received - Local extraction successful: {local_extraction_successful}")
+            print(f"Backend received - Extracted data: {extracted_data}")
             
             # Use NLP if available, otherwise fallback to OpenAI
             if NLP_AVAILABLE and nlp_processor:
@@ -1542,27 +1546,78 @@ class AIPropertyExtractView(APIView):
     def _process_with_nlp(self, user_input: str, conversation_context: Dict, extraction_config: Dict) -> Dict:
         """Process user input using NLP capabilities."""
         try:
-            # Use NLP processor for extraction
-            nlp_result = nlp_processor.extract_property_data(user_input, conversation_context)
+            # Check if frontend already extracted data
+            local_extraction_successful = conversation_context.get('local_extraction_successful', False)
+            already_extracted_data = conversation_context.get('extracted_data', {})
             
-            # Merge with existing extracted data
-            existing_data = conversation_context.get('extracted_data', {})
-            new_data = nlp_result.get('extracted_data', {})
-            
-            # Update extracted data (don't overwrite existing data)
-            for key, value in new_data.items():
-                if key not in existing_data or not existing_data[key]:
-                    existing_data[key] = value
-            
-            return {
-                'extracted_entities': nlp_result.get('extracted_entities', []),
-                'user_intent': nlp_result.get('user_intent', 'provide_information'),
-                'sentiment_analysis': nlp_result.get('sentiment_analysis', {}),
-                'extracted_data': existing_data,
-                'follow_up_question': nlp_result.get('follow_up_question', ''),
-                'confidence': 0.9
-            }
-            
+            if local_extraction_successful and already_extracted_data:
+                # Frontend already extracted data - use it and generate smart follow-up
+                print(f"Frontend extracted: {already_extracted_data}")
+                
+                # Use the already extracted data
+                extracted_data = already_extracted_data
+                
+                # Generate follow-up question based on what's missing
+                missing_fields = conversation_context.get('missing_fields', [])
+                
+                # Find the next field to ask about
+                next_field = None
+                for field in missing_fields:
+                    if field['key'] not in extracted_data:
+                        next_field = field
+                        break
+                
+                if next_field:
+                    # Acknowledge what was extracted and ask for next field
+                    property_type = extracted_data.get('property_type', 'property')
+                    field_name = next_field['name'].lower()
+                    
+                    if property_type == 'house':
+                        if field_name == 'bedrooms':
+                            follow_up_question = f"Great! I see you have a house. How many bedrooms does your house have?"
+                        elif field_name == 'bathrooms':
+                            follow_up_question = f"Perfect! How many bathrooms does your house have?"
+                        elif field_name == 'guest_capacity':
+                            follow_up_question = f"Excellent! How many guests can your house accommodate?"
+                        elif field_name == 'nightly_rate':
+                            follow_up_question = f"Nice! What price would you like to charge per night for your house?"
+                        else:
+                            follow_up_question = f"Great! I see you have a house. What is your {field_name}?"
+                    else:
+                        follow_up_question = f"Great! I see you have a {property_type}. What is your {field_name}?"
+                else:
+                    follow_up_question = "Perfect! I have all the information I need. Is there anything else you'd like to add?"
+                
+                return {
+                    'extracted_entities': [],
+                    'user_intent': 'provide_information',
+                    'sentiment_analysis': {'sentiment': 'positive', 'confidence': 0.9},
+                    'extracted_data': extracted_data,  # Return the already extracted data
+                    'follow_up_question': follow_up_question,
+                    'confidence': 0.9
+                }
+            else:
+                # No local extraction - do full extraction
+                nlp_result = nlp_processor.extract_property_data(user_input, conversation_context)
+                
+                # Merge with existing extracted data
+                existing_data = conversation_context.get('extracted_data', {})
+                new_data = nlp_result.get('extracted_data', {})
+                
+                # Update extracted data (don't overwrite existing data)
+                for key, value in new_data.items():
+                    if key not in existing_data or not existing_data[key]:
+                        existing_data[key] = value
+                
+                return {
+                    'extracted_entities': nlp_result.get('extracted_entities', []),
+                    'user_intent': nlp_result.get('user_intent', 'provide_information'),
+                    'sentiment_analysis': nlp_result.get('sentiment_analysis', {}),
+                    'extracted_data': existing_data,
+                    'follow_up_question': nlp_result.get('follow_up_question', ''),
+                    'confidence': 0.9
+                }
+                
         except Exception as e:
             print(f"NLP processing failed: {e}")
             # Fallback to OpenAI
