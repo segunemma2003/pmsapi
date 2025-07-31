@@ -142,33 +142,6 @@ class NLPProcessor:
             'mayotte', 'reunion', 'cape verde', 'sao tome and principe', 'angola', 'saint helena',
             'ascension', 'tristan da cunha', 'western sahara'
         }
-            'scotland', 'wales', 'northern ireland', 'ireland', 'france', 'germany', 'italy',
-            'spain', 'portugal', 'netherlands', 'belgium', 'switzerland', 'austria', 'denmark',
-            'norway', 'sweden', 'finland', 'iceland', 'poland', 'czech republic', 'slovakia',
-            'hungary', 'romania', 'bulgaria', 'greece', 'turkey', 'russia', 'ukraine', 'belarus',
-            'latvia', 'lithuania', 'estonia', 'moldova', 'georgia', 'armenia', 'azerbaijan',
-            'kazakhstan', 'uzbekistan', 'turkmenistan', 'kyrgyzstan', 'tajikistan', 'afghanistan',
-            'pakistan', 'india', 'bangladesh', 'sri lanka', 'nepal', 'bhutan', 'myanmar',
-            'thailand', 'laos', 'cambodia', 'vietnam', 'malaysia', 'singapore', 'indonesia',
-            'philippines', 'brunei', 'east timor', 'papua new guinea', 'australia', 'new zealand',
-            'fiji', 'vanuatu', 'solomon islands', 'new caledonia', 'french polynesia', 'samoa',
-            'tonga', 'tuvalu', 'kiribati', 'marshall islands', 'micronesia', 'palau', 'nauru',
-            'japan', 'south korea', 'north korea', 'china', 'mongolia', 'taiwan', 'hong kong',
-            'macau', 'brazil', 'argentina', 'chile', 'peru', 'bolivia', 'paraguay', 'uruguay',
-            'ecuador', 'colombia', 'venezuela', 'guyana', 'suriname', 'french guiana', 'falkland islands',
-            'south africa', 'namibia', 'botswana', 'zimbabwe', 'mozambique', 'zambia', 'malawi',
-            'tanzania', 'kenya', 'uganda', 'rwanda', 'burundi', 'democratic republic of congo',
-            'republic of congo', 'gabon', 'equatorial guinea', 'cameroon', 'central african republic',
-            'chad', 'niger', 'nigeria', 'benin', 'togo', 'ghana', 'ivory coast', 'liberia',
-            'sierra leone', 'guinea', 'guinea bissau', 'senegal', 'gambia', 'mauritania',
-            'morocco', 'algeria', 'tunisia', 'libya', 'egypt', 'sudan', 'south sudan', 'ethiopia',
-            'eritrea', 'djibouti', 'somalia', 'madagascar', 'mauritius', 'seychelles', 'comoros',
-            'mayotte', 'reunion', 'cape verde', 'sao tome and principe', 'angola', 'saint helena',
-            'ascension', 'tristan da cunha', 'western sahara', 'morocco', 'algeria', 'tunisia',
-            'libya', 'egypt', 'sudan', 'south sudan', 'ethiopia', 'eritrea', 'djibouti', 'somalia',
-            'madagascar', 'mauritius', 'seychelles', 'comoros', 'mayotte', 'reunion', 'cape verde',
-            'sao tome and principe', 'angola', 'saint helena', 'ascension', 'tristan da cunha'
-        }
         
         # Property-specific entity patterns
         self.PROPERTY_ENTITIES = {

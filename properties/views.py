@@ -53,9 +53,9 @@ from typing import Dict, List, Any
 try:
     from properties.nlp_utils import NLPProcessor
     NLP_AVAILABLE = True
-except ImportError:
+except (ImportError, SyntaxError, IndentationError) as e:
     NLP_AVAILABLE = False
-    print("Warning: NLP utilities not available. Using fallback extraction.")
+    print(f"Warning: NLP utilities not available ({e}). Using fallback extraction.")
 
 import logging
 
