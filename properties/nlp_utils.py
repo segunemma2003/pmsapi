@@ -113,7 +113,9 @@ class NLPProcessor:
             'tacoma', 'irvine', 'durham', 'spokane', 'santa rosa', 'oxnard', 'fort lauderdale',
             'boise', 'richmond', 'baton rouge', 'hialeah', 'spokane', 'fremont', 'billings',
             'santa barbara', 'palm springs', 'palm desert', 'indio', 'coachella', 'cathedral city',
-            'la quinta', 'rancho mirage', 'desert hot springs'
+            'la quinta', 'rancho mirage', 'desert hot springs', 'lagos', 'abuja', 'kano', 'ibadan',
+            'port harcourt', 'benin city', 'maiduguri', 'zaria', 'abeokuta', 'jos', 'ilorin',
+            'oyo', 'enugu', 'kaduna', 'warri', 'calabar', 'akure', 'bauchi', 'katsina', 'gombe'
         }
         
         self.FALLBACK_COUNTRIES = {
@@ -142,6 +144,33 @@ class NLPProcessor:
             'mayotte', 'reunion', 'cape verde', 'sao tome and principe', 'angola', 'saint helena',
             'ascension', 'tristan da cunha', 'western sahara'
         }
+            'scotland', 'wales', 'northern ireland', 'ireland', 'france', 'germany', 'italy',
+            'spain', 'portugal', 'netherlands', 'belgium', 'switzerland', 'austria', 'denmark',
+            'norway', 'sweden', 'finland', 'iceland', 'poland', 'czech republic', 'slovakia',
+            'hungary', 'romania', 'bulgaria', 'greece', 'turkey', 'russia', 'ukraine', 'belarus',
+            'latvia', 'lithuania', 'estonia', 'moldova', 'georgia', 'armenia', 'azerbaijan',
+            'kazakhstan', 'uzbekistan', 'turkmenistan', 'kyrgyzstan', 'tajikistan', 'afghanistan',
+            'pakistan', 'india', 'bangladesh', 'sri lanka', 'nepal', 'bhutan', 'myanmar',
+            'thailand', 'laos', 'cambodia', 'vietnam', 'malaysia', 'singapore', 'indonesia',
+            'philippines', 'brunei', 'east timor', 'papua new guinea', 'australia', 'new zealand',
+            'fiji', 'vanuatu', 'solomon islands', 'new caledonia', 'french polynesia', 'samoa',
+            'tonga', 'tuvalu', 'kiribati', 'marshall islands', 'micronesia', 'palau', 'nauru',
+            'japan', 'south korea', 'north korea', 'china', 'mongolia', 'taiwan', 'hong kong',
+            'macau', 'brazil', 'argentina', 'chile', 'peru', 'bolivia', 'paraguay', 'uruguay',
+            'ecuador', 'colombia', 'venezuela', 'guyana', 'suriname', 'french guiana', 'falkland islands',
+            'south africa', 'namibia', 'botswana', 'zimbabwe', 'mozambique', 'zambia', 'malawi',
+            'tanzania', 'kenya', 'uganda', 'rwanda', 'burundi', 'democratic republic of congo',
+            'republic of congo', 'gabon', 'equatorial guinea', 'cameroon', 'central african republic',
+            'chad', 'niger', 'nigeria', 'benin', 'togo', 'ghana', 'ivory coast', 'liberia',
+            'sierra leone', 'guinea', 'guinea bissau', 'senegal', 'gambia', 'mauritania',
+            'morocco', 'algeria', 'tunisia', 'libya', 'egypt', 'sudan', 'south sudan', 'ethiopia',
+            'eritrea', 'djibouti', 'somalia', 'madagascar', 'mauritius', 'seychelles', 'comoros',
+            'mayotte', 'reunion', 'cape verde', 'sao tome and principe', 'angola', 'saint helena',
+            'ascension', 'tristan da cunha', 'western sahara', 'morocco', 'algeria', 'tunisia',
+            'libya', 'egypt', 'sudan', 'south sudan', 'ethiopia', 'eritrea', 'djibouti', 'somalia',
+            'madagascar', 'mauritius', 'seychelles', 'comoros', 'mayotte', 'reunion', 'cape verde',
+            'sao tome and principe', 'angola', 'saint helena', 'ascension', 'tristan da cunha'
+        }
         
         # Property-specific entity patterns
         self.PROPERTY_ENTITIES = {
@@ -152,6 +181,14 @@ class NLPProcessor:
             'location': [
                 r'\b(city|town|village|neighborhood|district|area|zone|region|state|province|country)\b',
                 r'\b(downtown|uptown|suburb|rural|urban|coastal|mountain|lakefront|beachfront)\b'
+            ],
+            'neighborhood': [
+                r'\b(phase\s+\d+)\b',
+                r'\b(area\s+\d+)\b',
+                r'\b(zone\s+\d+)\b',
+                r'\b(district\s+\d+)\b',
+                r'\b(block\s+\d+)\b',
+                r'\b(lekki|victoria island|ikoyi|banana island|ajah|surulere|yaba|ikeja)\b'
             ],
             'capacity': [
                 r'\b(\d+)\s*(guest|guests|person|people|occupant|occupants)\b',
@@ -231,6 +268,21 @@ class NLPProcessor:
                     return False, text  # It's a country, not a city
             except LookupError:
                 pass
+        
+        # Method 5: Handle neighborhood/area names that might be mistaken for cities
+        # Common patterns like "Phase 1", "Phase 2", etc. are often neighborhoods
+        neighborhood_patterns = [
+            r'\b(phase\s+\d+)\b',
+            r'\b(area\s+\d+)\b',
+            r'\b(zone\s+\d+)\b',
+            r'\b(district\s+\d+)\b',
+            r'\b(block\s+\d+)\b'
+        ]
+        
+        for pattern in neighborhood_patterns:
+            if re.search(pattern, text_lower):
+                # This is likely a neighborhood, not a city
+                return False, text
         
         # Method 5: Pattern matching for common city patterns
         city_patterns = [
@@ -361,6 +413,27 @@ class NLPProcessor:
                     end=text.find(word) + len(word)
                 ))
         
+        # Extract multi-word patterns (like "Lekki Phase 1")
+        multi_word_patterns = [
+            (r'\b(lekki\s+phase\s+\d+)\b', 'neighborhood'),
+            (r'\b(victoria\s+island)\b', 'neighborhood'),
+            (r'\b(banana\s+island)\b', 'neighborhood'),
+            (r'\b(phase\s+\d+)\b', 'neighborhood'),
+            (r'\b(area\s+\d+)\b', 'neighborhood'),
+            (r'\b(zone\s+\d+)\b', 'neighborhood'),
+        ]
+        
+        for pattern, label in multi_word_patterns:
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                entities.append(ExtractedEntity(
+                    text=match.group(1).title(),
+                    label=label,
+                    confidence=0.95,
+                    start=match.start(),
+                    end=match.end()
+                ))
+        
         return entities
     
     def _extract_contextual_numbers(self, text: str) -> List[ExtractedEntity]:
@@ -435,8 +508,20 @@ class NLPProcessor:
             return False
         
         # If we extracted any meaningful data, move to next question
-        meaningful_fields = ['property_type', 'city', 'country', 'bedrooms', 'bathrooms', 'capacity', 'price', 'amenities']
+        meaningful_fields = ['property_type', 'city', 'country', 'neighborhood', 'bedrooms', 'bathrooms', 'capacity', 'price', 'amenities']
         extracted_meaningful = any(field in extracted_data for field in meaningful_fields)
+        
+        # Also check if we have enough data to move forward
+        if extracted_meaningful:
+            # If we have at least 2 meaningful fields, definitely move forward
+            meaningful_count = sum(1 for field in meaningful_fields if field in extracted_data)
+            if meaningful_count >= 2:
+                return True
+            
+            # If we have at least one high-confidence field, move forward
+            high_confidence_fields = ['property_type', 'bedrooms', 'bathrooms', 'price']
+            if any(field in extracted_data for field in high_confidence_fields):
+                return True
         
         return extracted_meaningful
     
@@ -461,6 +546,12 @@ class NLPProcessor:
         else:
             # Stay on current field
             next_field = missing_fields[0]
+        
+        # If we extracted significant data, acknowledge it and move forward
+        if extracted_data and len(extracted_data) >= 2:
+            # We have good data, move to next question
+            if len(missing_fields) > 1:
+                next_field = missing_fields[1]
         
         # Handle frustration
         if sentiment.sentiment == 'negative' or user_intent.intent == 'frustration':
@@ -506,7 +597,7 @@ class NLPProcessor:
         # Convert entities to extracted data with validation
         extracted_data = {}
         for entity in entities:
-            if entity.label in ['property_type', 'location', 'capacity', 'bedrooms', 'bathrooms', 'price', 'amenities', 'city', 'country']:
+            if entity.label in ['property_type', 'location', 'capacity', 'bedrooms', 'bathrooms', 'price', 'amenities', 'city', 'country', 'neighborhood']:
                 # Clean and normalize the extracted value
                 value = self._normalize_entity_value(entity.text, entity.label)
                 if value:
@@ -519,6 +610,9 @@ class NLPProcessor:
                         is_valid, validated_value = self.validate_country(value)
                         if is_valid:
                             extracted_data[entity.label] = validated_value
+                    elif entity.label == 'neighborhood':
+                        # Neighborhoods don't need validation, just add them
+                        extracted_data[entity.label] = value
                     else:
                         extracted_data[entity.label] = value
         
