@@ -217,6 +217,11 @@ fi
 
 echo "✅ All done!"
 echo ""
+echo "🤖 AI Features:"
+echo "  - AI features are currently DISABLED for faster deployment"
+echo "  - To enable AI features, run: chmod +x scripts/install-ai.sh && ./scripts/install-ai.sh"
+echo "  - This will install PyTorch, spaCy, transformers, and other ML packages"
+echo ""
 echo "💡 Database persistence info:"
 echo "  - Database data is stored in Docker volume 'oifyk_postgres_data'"
 echo "  - Backups are stored in ./db_backups/"

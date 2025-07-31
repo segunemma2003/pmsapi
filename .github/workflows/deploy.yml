@@ -114,9 +114,9 @@ jobs:
             FEATURE_ANALYTICS=True
             FEATURE_RATE_LIMITING=True
 
-            # AI Features (can be enabled later)
-            ENABLE_AI_FEATURES=True
-            DISABLE_AI_FEATURES=False
+            # AI Features (disabled to avoid build timeouts)
+            ENABLE_AI_FEATURES=False
+            DISABLE_AI_FEATURES=True
             SPACY_MODEL=en_core_web_sm
             TRANSFORMERS_CACHE=./models
             EOF

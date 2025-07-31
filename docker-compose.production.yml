@@ -22,7 +22,7 @@ services:
   web:
     build: 
       context: .
-      dockerfile: Dockerfile.production
+      dockerfile: Dockerfile.production.noai
       args:
         BUILDKIT_INLINE_CACHE: 1
     container_name: oifyk_web
@@ -83,7 +83,7 @@ services:
   celery:
     build: 
       context: .
-      dockerfile: Dockerfile.production
+      dockerfile: Dockerfile.production.noai
       args:
         BUILDKIT_INLINE_CACHE: 1
     container_name: oifyk_celery
@@ -102,7 +102,7 @@ services:
   celery-beat:
     build: 
       context: .
-      dockerfile: Dockerfile.production
+      dockerfile: Dockerfile.production.noai
       args:
         BUILDKIT_INLINE_CACHE: 1
     container_name: oifyk_celery_beat
