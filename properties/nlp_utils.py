@@ -12,6 +12,29 @@ from transformers import pipeline
 import nltk
 from nltk.sentiment import SentimentIntensityAnalyzer
 
+# Import city/country validation libraries
+try:
+    import pycountry
+    PYCOUNTRY_AVAILABLE = True
+except ImportError:
+    PYCOUNTRY_AVAILABLE = False
+    print("Warning: pycountry not available. Install with: pip install pycountry")
+
+try:
+    from geonamescache import GeonamesCache
+    GEONAMES_AVAILABLE = True
+except ImportError:
+    GEONAMES_AVAILABLE = False
+    print("Warning: geonamescache not available. Install with: pip install geonamescache")
+
+try:
+    from geopy.geocoders import Nominatim
+    from geopy.exc import GeocoderTimedOut, GeocoderUnavailable
+    GEOPY_AVAILABLE = True
+except ImportError:
+    GEOPY_AVAILABLE = False
+    print("Warning: geopy not available. Install with: pip install geopy")
+
 # Download required NLTK data
 try:
     nltk.data.find('vader_lexicon')
@@ -55,6 +78,97 @@ class NLPProcessor:
         
         # Initialize sentiment analyzer
         self.sentiment_analyzer = SentimentIntensityAnalyzer()
+        
+        # Initialize geocoding libraries
+        if GEONAMES_AVAILABLE:
+            self.geonames = GeonamesCache()
+            self.cities = self.geonames.get_cities()
+            self.countries = self.geonames.get_countries()
+        else:
+            self.geonames = None
+            self.cities = {}
+            self.countries = {}
+        
+        if GEOPY_AVAILABLE:
+            self.geolocator = Nominatim(user_agent="trustify_property_assistant")
+        else:
+            self.geolocator = None
+        
+        # Fallback lists for when libraries are not available
+        self.FALLBACK_CITIES = {
+            'new york', 'los angeles', 'chicago', 'houston', 'phoenix', 'philadelphia', 'san antonio', 
+            'san diego', 'dallas', 'san jose', 'austin', 'jacksonville', 'fort worth', 'columbus', 
+            'charlotte', 'san francisco', 'indianapolis', 'seattle', 'denver', 'washington', 'boston', 
+            'el paso', 'nashville', 'detroit', 'oklahoma city', 'portland', 'las vegas', 'memphis', 
+            'louisville', 'baltimore', 'milwaukee', 'albuquerque', 'tucson', 'fresno', 'sacramento', 
+            'atlanta', 'kansas city', 'long beach', 'colorado springs', 'raleigh', 'miami', 'virginia beach',
+            'omaha', 'oakland', 'minneapolis', 'tulsa', 'arlington', 'tampa', 'new orleans', 'wichita',
+            'cleveland', 'bakersfield', 'aurora', 'anaheim', 'honolulu', 'santa ana', 'corpus christi',
+            'riverside', 'lexington', 'stockton', 'henderson', 'saint paul', 'st. louis', 'milwaukee',
+            'baltimore', 'salt lake city', 'orlando', 'san antonio', 'laredo', 'chandler', 'madison',
+            'lubbock', 'scottsdale', 'reno', 'buffalo', 'gilbert', 'glendale', 'north las vegas',
+            'winston salem', 'chesapeake', 'norfolk', 'fremont', 'garland', 'irvine', 'hialeah',
+            'laredo', 'lubbock', 'akron', 'arlington', 'rochester', 'stockton', 'bakersfield',
+            'fremont', 'garland', 'huntington beach', 'modesto', 'glendale', 'des moines',
+            'tacoma', 'irvine', 'durham', 'spokane', 'santa rosa', 'oxnard', 'fort lauderdale',
+            'boise', 'richmond', 'baton rouge', 'hialeah', 'spokane', 'fremont', 'billings',
+            'santa barbara', 'palm springs', 'palm desert', 'indio', 'coachella', 'cathedral city',
+            'la quinta', 'rancho mirage', 'desert hot springs'
+        }
+        
+        self.FALLBACK_COUNTRIES = {
+            'united states', 'usa', 'us', 'canada', 'mexico', 'united kingdom', 'uk', 'england',
+            'scotland', 'wales', 'northern ireland', 'ireland', 'france', 'germany', 'italy',
+            'spain', 'portugal', 'netherlands', 'belgium', 'switzerland', 'austria', 'denmark',
+            'norway', 'sweden', 'finland', 'iceland', 'poland', 'czech republic', 'slovakia',
+            'hungary', 'romania', 'bulgaria', 'greece', 'turkey', 'russia', 'ukraine', 'belarus',
+            'latvia', 'lithuania', 'estonia', 'moldova', 'georgia', 'armenia', 'azerbaijan',
+            'kazakhstan', 'uzbekistan', 'turkmenistan', 'kyrgyzstan', 'tajikistan', 'afghanistan',
+            'pakistan', 'india', 'bangladesh', 'sri lanka', 'nepal', 'bhutan', 'myanmar',
+            'thailand', 'laos', 'cambodia', 'vietnam', 'malaysia', 'singapore', 'indonesia',
+            'philippines', 'brunei', 'east timor', 'papua new guinea', 'australia', 'new zealand',
+            'fiji', 'vanuatu', 'solomon islands', 'new caledonia', 'french polynesia', 'samoa',
+            'tonga', 'tuvalu', 'kiribati', 'marshall islands', 'micronesia', 'palau', 'nauru',
+            'japan', 'south korea', 'north korea', 'china', 'mongolia', 'taiwan', 'hong kong',
+            'macau', 'brazil', 'argentina', 'chile', 'peru', 'bolivia', 'paraguay', 'uruguay',
+            'ecuador', 'colombia', 'venezuela', 'guyana', 'suriname', 'french guiana', 'falkland islands',
+            'south africa', 'namibia', 'botswana', 'zimbabwe', 'mozambique', 'zambia', 'malawi',
+            'tanzania', 'kenya', 'uganda', 'rwanda', 'burundi', 'democratic republic of congo',
+            'republic of congo', 'gabon', 'equatorial guinea', 'cameroon', 'central african republic',
+            'chad', 'niger', 'nigeria', 'benin', 'togo', 'ghana', 'ivory coast', 'liberia',
+            'sierra leone', 'guinea', 'guinea bissau', 'senegal', 'gambia', 'mauritania',
+            'morocco', 'algeria', 'tunisia', 'libya', 'egypt', 'sudan', 'south sudan', 'ethiopia',
+            'eritrea', 'djibouti', 'somalia', 'madagascar', 'mauritius', 'seychelles', 'comoros',
+            'mayotte', 'reunion', 'cape verde', 'sao tome and principe', 'angola', 'saint helena',
+            'ascension', 'tristan da cunha', 'western sahara'
+        }
+            'scotland', 'wales', 'northern ireland', 'ireland', 'france', 'germany', 'italy',
+            'spain', 'portugal', 'netherlands', 'belgium', 'switzerland', 'austria', 'denmark',
+            'norway', 'sweden', 'finland', 'iceland', 'poland', 'czech republic', 'slovakia',
+            'hungary', 'romania', 'bulgaria', 'greece', 'turkey', 'russia', 'ukraine', 'belarus',
+            'latvia', 'lithuania', 'estonia', 'moldova', 'georgia', 'armenia', 'azerbaijan',
+            'kazakhstan', 'uzbekistan', 'turkmenistan', 'kyrgyzstan', 'tajikistan', 'afghanistan',
+            'pakistan', 'india', 'bangladesh', 'sri lanka', 'nepal', 'bhutan', 'myanmar',
+            'thailand', 'laos', 'cambodia', 'vietnam', 'malaysia', 'singapore', 'indonesia',
+            'philippines', 'brunei', 'east timor', 'papua new guinea', 'australia', 'new zealand',
+            'fiji', 'vanuatu', 'solomon islands', 'new caledonia', 'french polynesia', 'samoa',
+            'tonga', 'tuvalu', 'kiribati', 'marshall islands', 'micronesia', 'palau', 'nauru',
+            'japan', 'south korea', 'north korea', 'china', 'mongolia', 'taiwan', 'hong kong',
+            'macau', 'brazil', 'argentina', 'chile', 'peru', 'bolivia', 'paraguay', 'uruguay',
+            'ecuador', 'colombia', 'venezuela', 'guyana', 'suriname', 'french guiana', 'falkland islands',
+            'south africa', 'namibia', 'botswana', 'zimbabwe', 'mozambique', 'zambia', 'malawi',
+            'tanzania', 'kenya', 'uganda', 'rwanda', 'burundi', 'democratic republic of congo',
+            'republic of congo', 'gabon', 'equatorial guinea', 'cameroon', 'central african republic',
+            'chad', 'niger', 'nigeria', 'benin', 'togo', 'ghana', 'ivory coast', 'liberia',
+            'sierra leone', 'guinea', 'guinea bissau', 'senegal', 'gambia', 'mauritania',
+            'morocco', 'algeria', 'tunisia', 'libya', 'egypt', 'sudan', 'south sudan', 'ethiopia',
+            'eritrea', 'djibouti', 'somalia', 'madagascar', 'mauritius', 'seychelles', 'comoros',
+            'mayotte', 'reunion', 'cape verde', 'sao tome and principe', 'angola', 'saint helena',
+            'ascension', 'tristan da cunha', 'western sahara', 'morocco', 'algeria', 'tunisia',
+            'libya', 'egypt', 'sudan', 'south sudan', 'ethiopia', 'eritrea', 'djibouti', 'somalia',
+            'madagascar', 'mauritius', 'seychelles', 'comoros', 'mayotte', 'reunion', 'cape verde',
+            'sao tome and principe', 'angola', 'saint helena', 'ascension', 'tristan da cunha'
+        }
         
         # Property-specific entity patterns
         self.PROPERTY_ENTITIES = {
@@ -110,6 +224,98 @@ class NLPProcessor:
             ]
         }
     
+    def validate_city(self, text: str) -> Tuple[bool, str]:
+        """Validate if the text represents a valid city using multiple validation methods."""
+        text_lower = text.lower().strip()
+        
+        # Method 1: Check against fallback city list
+        if text_lower in self.FALLBACK_CITIES:
+            return True, text_lower.title()
+        
+        # Method 2: Use geonamescache library if available
+        if GEONAMES_AVAILABLE and self.cities:
+            # Search for city in geonames data
+            for city_id, city_data in self.cities.items():
+                city_name = city_data.get('name', '').lower()
+                if text_lower == city_name:
+                    return True, city_data.get('name', text).title()
+        
+        # Method 3: Use geopy for geocoding validation
+        if GEOPY_AVAILABLE and self.geolocator:
+            try:
+                location = self.geolocator.geocode(text, timeout=5)
+                if location and 'city' in location.raw.get('type', '').lower():
+                    return True, location.address.split(',')[0].title()
+            except (GeocoderTimedOut, GeocoderUnavailable):
+                pass
+        
+        # Method 4: Use pycountry for country validation (cities might be in country names)
+        if PYCOUNTRY_AVAILABLE:
+            try:
+                # Check if it's a country name (sometimes users confuse cities with countries)
+                country = pycountry.countries.search_fuzzy(text)
+                if country:
+                    return False, text  # It's a country, not a city
+            except LookupError:
+                pass
+        
+        # Method 5: Pattern matching for common city patterns
+        city_patterns = [
+            r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+(?:city|town|village)\b',
+            r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b'
+        ]
+        
+        for pattern in city_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                potential_city = match.group(1).lower()
+                if potential_city in self.FALLBACK_CITIES:
+                    return True, potential_city.title()
+        
+        return False, text
+    
+    def validate_country(self, text: str) -> Tuple[bool, str]:
+        """Validate if the text represents a valid country using multiple validation methods."""
+        text_lower = text.lower().strip()
+        
+        # Method 1: Check against fallback country list
+        if text_lower in self.FALLBACK_COUNTRIES:
+            return True, text_lower.title()
+        
+        # Method 2: Use pycountry library if available
+        if PYCOUNTRY_AVAILABLE:
+            try:
+                # Search for exact match
+                country = pycountry.countries.search_fuzzy(text)
+                if country:
+                    return True, country[0].name
+            except LookupError:
+                pass
+        
+        # Method 3: Use geonamescache library if available
+        if GEONAMES_AVAILABLE and self.countries:
+            # Search for country in geonames data
+            for country_code, country_data in self.countries.items():
+                country_name = country_data.get('name', '').lower()
+                if text_lower == country_name:
+                    return True, country_data.get('name', text).title()
+        
+        # Method 4: Handle common country abbreviations and variations
+        country_mappings = {
+            'usa': 'United States',
+            'us': 'United States',
+            'uk': 'United Kingdom',
+            'england': 'United Kingdom',
+            'scotland': 'United Kingdom',
+            'wales': 'United Kingdom',
+            'northern ireland': 'United Kingdom'
+        }
+        
+        if text_lower in country_mappings:
+            return True, country_mappings[text_lower]
+        
+        return False, text
+    
     def extract_entities(self, text: str) -> List[ExtractedEntity]:
         """Extract entities using spaCy and pattern matching."""
         entities = []
@@ -142,6 +348,45 @@ class NLPProcessor:
         # Context-aware number extraction
         numbers = self._extract_contextual_numbers(text)
         entities.extend(numbers)
+        
+        # City and country extraction with validation
+        city_country_entities = self._extract_city_country(text)
+        entities.extend(city_country_entities)
+        
+        return entities
+    
+    def _extract_city_country(self, text: str) -> List[ExtractedEntity]:
+        """Extract and validate city and country entities."""
+        entities = []
+        
+        # Look for city/country patterns
+        words = text.split()
+        for i, word in enumerate(words):
+            word_clean = re.sub(r'[^\w\s]', '', word).strip()
+            if not word_clean:
+                continue
+            
+            # Check for city
+            is_valid_city, city_name = self.validate_city(word_clean)
+            if is_valid_city:
+                entities.append(ExtractedEntity(
+                    text=city_name,
+                    label='city',
+                    confidence=0.9,
+                    start=text.find(word),
+                    end=text.find(word) + len(word)
+                ))
+            
+            # Check for country
+            is_valid_country, country_name = self.validate_country(word_clean)
+            if is_valid_country:
+                entities.append(ExtractedEntity(
+                    text=country_name,
+                    label='country',
+                    confidence=0.9,
+                    start=text.find(word),
+                    end=text.find(word) + len(word)
+                ))
         
         return entities
     
@@ -211,15 +456,38 @@ class NLPProcessor:
             compound_score=scores['compound']
         )
     
+    def should_move_to_next_question(self, extracted_data: Dict, missing_fields: List[Dict]) -> bool:
+        """Determine if we should move to the next question based on extracted data."""
+        if not extracted_data:
+            return False
+        
+        # If we extracted any meaningful data, move to next question
+        meaningful_fields = ['property_type', 'city', 'country', 'bedrooms', 'bathrooms', 'capacity', 'price', 'amenities']
+        extracted_meaningful = any(field in extracted_data for field in meaningful_fields)
+        
+        return extracted_meaningful
+    
     def generate_follow_up_question(self, 
                                   missing_fields: List[Dict], 
                                   user_intent: UserIntent,
                                   sentiment: SentimentAnalysis,
-                                  extraction_attempts: int = 0) -> str:
+                                  extraction_attempts: int = 0,
+                                  extracted_data: Dict = None) -> str:
         """Generate contextually appropriate follow-up questions."""
         
         if not missing_fields:
             return "Great! I think I have all the information I need. Is there anything else you'd like to add?"
+        
+        # Check if we should move to next question based on extracted data
+        if extracted_data and self.should_move_to_next_question(extracted_data, missing_fields):
+            # Move to the next missing field
+            if len(missing_fields) > 1:
+                next_field = missing_fields[1]  # Move to next field
+            else:
+                next_field = missing_fields[0]  # Stay on current field if it's the last one
+        else:
+            # Stay on current field
+            next_field = missing_fields[0]
         
         # Handle frustration
         if sentiment.sentiment == 'negative' or user_intent.intent == 'frustration':
@@ -228,9 +496,7 @@ class NLPProcessor:
             else:
                 return "I understand this might be frustrating. Let me try a different approach. Could you tell me more about your property?"
         
-        # Get the next missing field
-        field = missing_fields[0]
-        field_name = field['name'].lower()
+        field_name = next_field['name'].lower()
         
         # Apologetic starters based on sentiment
         if sentiment.sentiment == 'negative':
@@ -240,10 +506,12 @@ class NLPProcessor:
         else:
             starter = "Could you tell me about "
         
-        # Field-specific questions
+        # Field-specific questions with improved flow
         questions = {
             'property_type': f"{starter}what type of property you're listing? Is it a house, apartment, villa, cabin, or loft? 🏠",
             'location': f"{starter}where your property is located? 🌆",
+            'city': f"{starter}which city is your property in? 🏙️",
+            'country': f"{starter}which country is your property located in? 🌍",
             'guest_capacity': f"{starter}how many guests your property can accommodate? 👥",
             'bedrooms': f"{starter}how many bedrooms your property has? 🛏️",
             'bathrooms': f"{starter}how many bathrooms your property has? 🚿",
@@ -262,14 +530,28 @@ class NLPProcessor:
         intent = self.classify_intent(text)
         sentiment = self.analyze_sentiment(text)
         
-        # Convert entities to extracted data
+        # Convert entities to extracted data with validation
         extracted_data = {}
         for entity in entities:
-            if entity.label in ['property_type', 'location', 'capacity', 'bedrooms', 'bathrooms', 'price', 'amenities']:
+            if entity.label in ['property_type', 'location', 'capacity', 'bedrooms', 'bathrooms', 'price', 'amenities', 'city', 'country']:
                 # Clean and normalize the extracted value
                 value = self._normalize_entity_value(entity.text, entity.label)
                 if value:
-                    extracted_data[entity.label] = value
+                    # For city and country, validate before adding
+                    if entity.label == 'city':
+                        is_valid, validated_value = self.validate_city(value)
+                        if is_valid:
+                            extracted_data[entity.label] = validated_value
+                    elif entity.label == 'country':
+                        is_valid, validated_value = self.validate_country(value)
+                        if is_valid:
+                            extracted_data[entity.label] = validated_value
+                    else:
+                        extracted_data[entity.label] = value
+        
+        # Determine if we should move to next question
+        missing_fields = conversation_context.get('missing_fields', [])
+        should_move = self.should_move_to_next_question(extracted_data, missing_fields)
         
         return {
             'extracted_entities': [{'text': e.text, 'label': e.label, 'confidence': e.confidence} for e in entities],
@@ -279,11 +561,13 @@ class NLPProcessor:
                 'confidence': sentiment.confidence
             },
             'extracted_data': extracted_data,
+            'should_move_to_next': should_move,
             'follow_up_question': self.generate_follow_up_question(
-                conversation_context.get('missing_fields', []),
+                missing_fields,
                 intent,
                 sentiment,
-                conversation_context.get('extraction_attempts', 0)
+                conversation_context.get('extraction_attempts', 0),
+                extracted_data
             )
         }
     
@@ -316,5 +600,9 @@ class NLPProcessor:
                 return 'loft'
             else:
                 return text
+        
+        elif label in ['city', 'country']:
+            # Return the text as-is for validation
+            return text
         
         return text 
