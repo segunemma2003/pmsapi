@@ -20,5 +20,9 @@ pandas
 textblob
 pattern
 
+pycountry
+geonamescache
+geopy
+
 # Note: Install spacy language model separately if needed:
 # RUN python -m spacy download en_core_web_sm 

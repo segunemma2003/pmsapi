@@ -34,3 +34,6 @@ torch
 scikit-learn
 numpy
 nltk
+pycountry
+geonamescache
+geopy
