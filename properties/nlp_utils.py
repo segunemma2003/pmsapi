@@ -115,7 +115,18 @@ class NLPProcessor:
             'santa barbara', 'palm springs', 'palm desert', 'indio', 'coachella', 'cathedral city',
             'la quinta', 'rancho mirage', 'desert hot springs', 'lagos', 'abuja', 'kano', 'ibadan',
             'port harcourt', 'benin city', 'maiduguri', 'zaria', 'abeokuta', 'jos', 'ilorin',
-            'oyo', 'enugu', 'kaduna', 'warri', 'calabar', 'akure', 'bauchi', 'katsina', 'gombe'
+            'oyo', 'enugu', 'kaduna', 'warri', 'calabar', 'akure', 'bauchi', 'katsina', 'gombe',
+            'tokyo', 'osaka', 'kyoto', 'yokohama', 'nagoya', 'sapporo', 'kobe', 'fukuoka', 'kawasaki',
+            'saitama', 'hiroshima', 'sendai', 'chiba', 'kitakyushu', 'sakai', 'niigata', 'hamamatsu',
+            'kumamoto', 'sagamihara', 'shizuoka', 'okayama', 'kagoshima', 'funabashi', 'higashiosaka',
+            'hachioji', 'matsuyama', 'machida', 'nagano', 'toyonaka', 'ichinomiya', 'nara', 'toyohashi',
+            'toyota', 'gifu', 'himeji', 'kawaguchi', 'takamatsu', 'utsunomiya', 'asahikawa', 'iwaki',
+            'nagasaki', 'suita', 'nishinomiya', 'hamamatsu', 'kumagaya', 'kawagoe', 'hirakata', 'akita',
+            'yokkaichi', 'fukushima', 'maebashi', 'ibaraki', 'shizuoka', 'okazaki', 'koriyama', 'kakogawa',
+            'tokorozawa', 'akashi', 'kasugai', 'aomori', 'yokosuka', 'morioka', 'takasaki', 'miyazaki',
+            'koshigaya', 'kakamigahara', 'sakura', 'akishima', 'minato', 'shinjuku', 'shibuya', 'setagaya',
+            'suginami', 'toshima', 'taito', 'chiyoda', 'nerima', 'itabashi', 'ota', 'adachi', 'katsushika',
+            'edogawa', 'sumida', 'koto', 'chuo', 'meguro', 'nakano', 'bunkyo', 'toshima', 'kita', 'arakawa'
         }
         
         self.FALLBACK_COUNTRIES = {
@@ -208,7 +219,18 @@ class NLPProcessor:
             'price': [
                 r'\$\s*(\d+(?:,\d{3})*(?:\.\d{2})?)',
                 r'\b(\d+(?:,\d{3})*(?:\.\d{2})?)\s*(dollars?|USD|per night|nightly|daily)\b',
-                r'\b(rate|price|cost|charge)\s*(?:of|is|at)\s*(\d+(?:,\d{3})*(?:\.\d{2})?)\b'
+                r'\b(rate|price|cost|charge)\s*(?:of|is|at)\s*(\d+(?:,\d{3})*(?:\.\d{2})?)\b',
+                r'\b(\d+(?:,\d{3})*(?:\.\d{2})?)\s*\$?\s*(?:per night|nightly|daily)\b'
+            ],
+            'check_in_time': [
+                r'\b(check.?in|checkin|arrival)\s*(?:time|at|is)?\s*(?:is\s*)?(\d{1,2}:\d{2})\b',
+                r'\b(\d{1,2}:\d{2})\s*(?:check.?in|checkin|arrival)\b',
+                r'\b(check.?in|checkin)\s*(?:time|at|is)?\s*(?:is\s*)?(\d{1,2})\s*(?:am|pm|AM|PM)?\b'
+            ],
+            'check_out_time': [
+                r'\b(check.?out|checkout|departure)\s*(?:time|at|is)?\s*(?:is\s*)?(\d{1,2}:\d{2})\b',
+                r'\b(\d{1,2}:\d{2})\s*(?:check.?out|checkout|departure)\b',
+                r'\b(check.?out|checkout)\s*(?:time|at|is)?\s*(?:is\s*)?(\d{1,2})\s*(?:am|pm|AM|PM)?\b'
             ],
             'amenities': [
                 r'\b(wifi|internet|kitchen|parking|pool|gym|garden|balcony|terrace|fireplace|air conditioning|heating|washer|dryer|dishwasher|tv|netflix|amazon prime|hulu|disney plus|spotify|apple music|youtube music|youtube tv|hbo max|peacock|paramount plus|showtime|starz|cinemax|epix|mubi|criterion channel|kanopy|hoopla|tubi|pluto tv|roku channel|vudu|fandango now|google play movies|itunes|microsoft store|playstation store|xbox store|nintendo eshop|steam|epic games store|gog|origin|uplay|battle net|discord|twitch|reddit|facebook|instagram|twitter|tiktok|linkedin|pinterest|snapchat|whatsapp|telegram|signal|zoom|skype|teams|slack|discord|trello|asana|notion|evernote|dropbox|google drive|onedrive|icloud|box|mega|pcloud|sync|tresorit|protonmail|tutanota|posteo|mailbox|fastmail|zoho|yandex|outlook|gmail|yahoo|aol|icloud|protonmail|tutanota|posteo|mailbox|fastmail|zoho|yandex|outlook|gmail|yahoo|aol)\b',
@@ -237,6 +259,10 @@ class NLPProcessor:
     def validate_city(self, text: str) -> Tuple[bool, str]:
         """Validate if the text represents a valid city using multiple validation methods."""
         text_lower = text.lower().strip()
+        
+        # Method 0: Check if it's a known country first (cities shouldn't be countries)
+        if text_lower in self.FALLBACK_COUNTRIES:
+            return False, text  # It's a country, not a city
         
         # Method 1: Check against fallback city list
         if text_lower in self.FALLBACK_CITIES:
@@ -284,7 +310,7 @@ class NLPProcessor:
                 # This is likely a neighborhood, not a city
                 return False, text
         
-        # Method 5: Pattern matching for common city patterns
+        # Method 6: Pattern matching for common city patterns
         city_patterns = [
             r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+(?:city|town|village)\b',
             r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b'
@@ -302,6 +328,10 @@ class NLPProcessor:
     def validate_country(self, text: str) -> Tuple[bool, str]:
         """Validate if the text represents a valid country using multiple validation methods."""
         text_lower = text.lower().strip()
+        
+        # Method 0: Check if it's a known city first (countries shouldn't be cities)
+        if text_lower in self.FALLBACK_CITIES:
+            return False, text  # It's a city, not a country
         
         # Method 1: Check against fallback country list
         if text_lower in self.FALLBACK_COUNTRIES:
@@ -384,11 +414,47 @@ class NLPProcessor:
         """Extract and validate city and country entities."""
         entities = []
         
-        # Look for city/country patterns
+        # First, look for "City, Country" pattern (most common format)
+        city_country_pattern = r'\b([A-Za-z\s]+),\s*([A-Za-z\s]+)\b'
+        matches = re.finditer(city_country_pattern, text, re.IGNORECASE)
+        
+        for match in matches:
+            potential_city = match.group(1).strip()
+            potential_country = match.group(2).strip()
+            
+            # Validate city
+            is_valid_city, city_name = self.validate_city(potential_city)
+            if is_valid_city:
+                entities.append(ExtractedEntity(
+                    text=city_name,
+                    label='city',
+                    confidence=0.95,
+                    start=match.start(1),
+                    end=match.end(1)
+                ))
+            
+            # Validate country
+            is_valid_country, country_name = self.validate_country(potential_country)
+            if is_valid_country:
+                entities.append(ExtractedEntity(
+                    text=country_name,
+                    label='country',
+                    confidence=0.95,
+                    start=match.start(2),
+                    end=match.end(2)
+                ))
+        
+        # If we found city/country pairs, don't process individual words to avoid duplicates
+        if entities:
+            return entities
+        
+        # Fallback: Look for individual city/country patterns
         words = text.split()
+        processed_words = set()  # Track processed words to avoid duplicates
+        
         for i, word in enumerate(words):
             word_clean = re.sub(r'[^\w\s]', '', word).strip()
-            if not word_clean:
+            if not word_clean or word_clean in processed_words:
                 continue
             
             # Check for city
@@ -401,6 +467,8 @@ class NLPProcessor:
                     start=text.find(word),
                     end=text.find(word) + len(word)
                 ))
+                processed_words.add(word_clean)
+                continue  # Don't check the same word for country
             
             # Check for country
             is_valid_country, country_name = self.validate_country(word_clean)
@@ -412,6 +480,7 @@ class NLPProcessor:
                     start=text.find(word),
                     end=text.find(word) + len(word)
                 ))
+                processed_words.add(word_clean)
         
         # Extract multi-word patterns (like "Lekki Phase 1")
         multi_word_patterns = [
@@ -446,14 +515,31 @@ class NLPProcessor:
             (r'(\d+)\s*(bathroom|bathrooms|bath|baths)', 'bathrooms'),
             (r'(\d+)\s*(guest|guests|person|people)', 'capacity'),
             (r'\$\s*(\d+(?:,\d{3})*(?:\.\d{2})?)', 'price'),
-            (r'(\d+(?:,\d{3})*(?:\.\d{2})?)\s*(dollars?|USD|per night)', 'price')
+            (r'(\d+(?:,\d{3})*(?:\.\d{2})?)\s*(dollars?|USD|per night)', 'price'),
+            (r'(\d+(?:,\d{3})*(?:\.\d{2})?)\s*\$?\s*(?:per night|nightly|daily)', 'price'),
+            # Timing patterns
+            (r'\b(check.?in|checkin|arrival)\s*(?:time|at|is)?\s*(?:is\s*)?(\d{1,2}):(\d{2})\b', 'check_in_time'),
+            (r'\b(\d{1,2}):(\d{2})\s*(?:check.?in|checkin|arrival)\b', 'check_in_time'),
+            (r'\b(check.?out|checkout|departure)\s*(?:time|at|is)?\s*(?:is\s*)?(\d{1,2}):(\d{2})\b', 'check_out_time'),
+            (r'\b(\d{1,2}):(\d{2})\s*(?:check.?out|checkout|departure)\b', 'check_out_time'),
         ]
         
         for pattern, label in patterns:
             matches = re.finditer(pattern, text, re.IGNORECASE)
             for match in matches:
+                if label in ['check_in_time', 'check_out_time']:
+                    # Handle time format
+                    if len(match.groups()) >= 2:
+                        hour = match.group(-2)
+                        minute = match.group(-1)
+                        time_value = f"{hour}:{minute}"
+                    else:
+                        time_value = match.group(1)
+                else:
+                    time_value = match.group()
+                
                 entities.append(ExtractedEntity(
-                    text=match.group(),
+                    text=time_value,
                     label=label,
                     confidence=0.9,
                     start=match.start(),
@@ -508,7 +594,7 @@ class NLPProcessor:
             return False
         
         # If we extracted any meaningful data, move to next question
-        meaningful_fields = ['property_type', 'city', 'country', 'neighborhood', 'bedrooms', 'bathrooms', 'capacity', 'price', 'amenities']
+        meaningful_fields = ['property_type', 'city', 'country', 'neighborhood', 'bedrooms', 'bathrooms', 'capacity', 'price', 'check_in_time', 'check_out_time']
         extracted_meaningful = any(field in extracted_data for field in meaningful_fields)
         
         # Also check if we have enough data to move forward
@@ -519,7 +605,7 @@ class NLPProcessor:
                 return True
             
             # If we have at least one high-confidence field, move forward
-            high_confidence_fields = ['property_type', 'bedrooms', 'bathrooms', 'price']
+            high_confidence_fields = ['property_type', 'bedrooms', 'bathrooms', 'price', 'check_in_time', 'check_out_time']
             if any(field in extracted_data for field in high_confidence_fields):
                 return True
         
@@ -564,26 +650,26 @@ class NLPProcessor:
         
         # Apologetic starters based on sentiment
         if sentiment.sentiment == 'negative':
-            starter = "I'm sorry, I didn't catch that. "
+            starter = "I need to know: "
         elif extraction_attempts > 0:
-            starter = "Excuse me, I still need to know about "
+            starter = "I still need: "
         else:
-            starter = "Could you tell me about "
+            starter = "What is your "
         
         # Field-specific questions with improved flow
         questions = {
-            'property_type': f"{starter}what type of property you're listing? Is it a house, apartment, villa, cabin, or loft? 🏠",
-            'location': f"{starter}where your property is located? 🌆",
-            'city': f"{starter}which city is your property in? 🏙️",
-            'country': f"{starter}which country is your property located in? 🌍",
-            'guest_capacity': f"{starter}how many guests your property can accommodate? 👥",
-            'bedrooms': f"{starter}how many bedrooms your property has? 🛏️",
-            'bathrooms': f"{starter}how many bathrooms your property has? 🚿",
-            'nightly_rate': f"{starter}what price you'd like to charge per night? 💰",
-            'amenities': f"{starter}what amenities your property offers? Like wifi, kitchen, parking, pool, etc.? ⭐",
-            'title': f"{starter}what you'd like to call your property listing? ✨",
-            'description': f"{starter}what makes your property special? 📝",
-            'house_rules': f"{starter}your house rules? Do you allow smoking or pets? 🏠"
+            'property_type': f"{starter}what type of property you're listing? (house, apartment, villa, cabin, loft)",
+            'location': f"{starter}where your property is located?",
+            'city': f"{starter}which city is your property in?",
+            'country': f"{starter}which country is your property located in?",
+            'guest_capacity': f"{starter}how many guests your property can accommodate?",
+            'bedrooms': f"{starter}how many bedrooms your property has?",
+            'bathrooms': f"{starter}how many bathrooms your property has?",
+            'nightly_rate': f"{starter}what price you'd like to charge per night?",
+            'check_in_time': f"{starter}what is your check-in time?",
+            'check_out_time': f"{starter}what is your check-out time?",
+            'title': f"{starter}what you'd like to call your property listing?",
+            'description': f"{starter}what makes your property special?"
         }
         
         return questions.get(field_name, f"{starter}{field_name}? 🏡")
@@ -597,7 +683,7 @@ class NLPProcessor:
         # Convert entities to extracted data with validation
         extracted_data = {}
         for entity in entities:
-            if entity.label in ['property_type', 'location', 'capacity', 'bedrooms', 'bathrooms', 'price', 'amenities', 'city', 'country', 'neighborhood']:
+            if entity.label in ['property_type', 'location', 'capacity', 'bedrooms', 'bathrooms', 'price', 'check_in_time', 'check_out_time', 'city', 'country', 'neighborhood']:
                 # Clean and normalize the extracted value
                 value = self._normalize_entity_value(entity.text, entity.label)
                 if value:
@@ -651,6 +737,15 @@ class NLPProcessor:
             # Extract just the number
             match = re.search(r'(\d+)', text)
             return match.group(1) if match else text
+        
+        elif label in ['check_in_time', 'check_out_time']:
+            # Normalize time format
+            time_match = re.search(r'(\d{1,2}):(\d{2})', text)
+            if time_match:
+                hour = time_match.group(1)
+                minute = time_match.group(2)
+                return f"{hour}:{minute}"
+            return text
         
         elif label == 'property_type':
             # Normalize property types
