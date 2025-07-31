@@ -187,7 +187,9 @@ class NLPProcessor:
         self.PROPERTY_ENTITIES = {
             'property_type': [
                 r'\b(house|apartment|villa|cabin|loft|condo|townhouse|studio|penthouse|chalet|cottage|bungalow|mansion|duplex|triplex)\b',
-                r'\b(single family|multi family|residential|commercial|vacation home|beach house|mountain cabin)\b'
+                r'\b(single family|multi family|residential|commercial|vacation home|beach house|mountain cabin)\b',
+                r'\b(it\'s|it is|this is|that is|we have|i have)\s+(?:a\s+)?(small\s+|large\s+|big\s+|tiny\s+)?(house|apartment|villa|cabin|loft|condo|townhouse|studio|penthouse|chalet|cottage|bungalow|mansion|duplex|triplex)\b',
+                r'\b(my|our|the)\s+(?:property|place|home|listing)\s+(?:is\s+)?(?:a\s+)?(small\s+|large\s+|big\s+|tiny\s+)?(house|apartment|villa|cabin|loft|condo|townhouse|studio|penthouse|chalet|cottage|bungalow|mansion|duplex|triplex)\b'
             ],
             'location': [
                 r'\b(city|town|village|neighborhood|district|area|zone|region|state|province|country)\b',
