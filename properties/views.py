@@ -1560,9 +1560,23 @@ class AIPropertyExtractView(APIView):
                 # Generate follow-up question based on what's missing
                 missing_fields = conversation_context.get('missing_fields', [])
                 
+                # Fields to exclude from follow-up questions (handled by UI components)
+                excluded_fields = {
+                    'images', 'amenities', 'smoking_allowed', 'pets_allowed', 
+                    'events_allowed', 'children_welcome', 'house_rules',
+                    'trust_level_1_discount', 'trust_level_2_discount', 'trust_level_3_discount',
+                    'trust_level_4_discount', 'trust_level_5_discount'
+                }
+                
+                # Filter out excluded fields
+                filtered_missing_fields = [
+                    field for field in missing_fields 
+                    if field.get('key', '').lower() not in excluded_fields
+                ]
+                
                 # Find the next field to ask about
                 next_field = None
-                for field in missing_fields:
+                for field in filtered_missing_fields:
                     if field['key'] not in extracted_data:
                         next_field = field
                         break

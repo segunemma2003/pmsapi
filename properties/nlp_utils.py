@@ -455,6 +455,57 @@ class NLPProcessor:
     def _extract_city_country(self, text: str) -> List[ExtractedEntity]:
         """Extract and validate city and country entities."""
         entities = []
+        print(f"Extracting city/country from: '{text}'")
+        
+        # Enhanced patterns for natural language
+        location_patterns = [
+            # "in Japan and in the city of tokyo"
+            r'\bin\s+([A-Za-z\s]+)\s+and\s+in\s+the\s+city\s+of\s+([A-Za-z\s]+)',
+            # "in Japan, tokyo"
+            r'\bin\s+([A-Za-z\s]+),\s*([A-Za-z\s]+)',
+            # "Japan, tokyo"
+            r'\b([A-Za-z\s]+),\s*([A-Za-z\s]+)',
+            # "located in Japan and tokyo"
+            r'\blocated\s+in\s+([A-Za-z\s]+)\s+and\s+([A-Za-z\s]+)',
+            # "from Japan, city is tokyo"
+            r'\bfrom\s+([A-Za-z\s]+),?\s+(?:city\s+is\s+)?([A-Za-z\s]+)',
+        ]
+        
+        for pattern in location_patterns:
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                potential_country = match.group(1).strip()
+                potential_city = match.group(2).strip()
+                
+                print(f"Pattern matched - potential country: '{potential_country}', potential city: '{potential_city}'")
+                
+                # Validate country first
+                is_valid_country, country_name = self.validate_country(potential_country)
+                if is_valid_country:
+                    entities.append(ExtractedEntity(
+                        text=country_name,
+                        label='country',
+                        confidence=0.95,
+                        start=match.start(1),
+                        end=match.end(1)
+                    ))
+                    print(f"Valid country found: '{country_name}'")
+                
+                # Validate city
+                is_valid_city, city_name = self.validate_city(potential_city)
+                if is_valid_city:
+                    entities.append(ExtractedEntity(
+                        text=city_name,
+                        label='city',
+                        confidence=0.95,
+                        start=match.start(2),
+                        end=match.end(2)
+                    ))
+                    print(f"Valid city found: '{city_name}'")
+        
+        # If we found entities with enhanced patterns, return them
+        if entities:
+            return entities
         
         # First, look for "City, Country" pattern (most common format)
         city_country_pattern = r'\b([A-Za-z\s]+),\s*([A-Za-z\s]+)\b'
@@ -495,8 +546,22 @@ class NLPProcessor:
         processed_words = set()  # Track processed words to avoid duplicates
         
         for i, word in enumerate(words):
-            word_clean = re.sub(r'[^\w\s]', '', word).strip()
+            word_clean = re.sub(r'[^\w\s]', '', word).strip().lower()
             if not word_clean or word_clean in processed_words:
+                continue
+            
+            # Check for country first (prioritize countries over cities)
+            is_valid_country, country_name = self.validate_country(word_clean)
+            if is_valid_country:
+                entities.append(ExtractedEntity(
+                    text=country_name,
+                    label='country',
+                    confidence=0.9,
+                    start=text.lower().find(word_clean),
+                    end=text.lower().find(word_clean) + len(word_clean)
+                ))
+                processed_words.add(word_clean)
+                print(f"Individual country found: '{country_name}'")
                 continue
             
             # Check for city
@@ -506,23 +571,11 @@ class NLPProcessor:
                     text=city_name,
                     label='city',
                     confidence=0.9,
-                    start=text.find(word),
-                    end=text.find(word) + len(word)
+                    start=text.lower().find(word_clean),
+                    end=text.lower().find(word_clean) + len(word_clean)
                 ))
                 processed_words.add(word_clean)
-                continue  # Don't check the same word for country
-            
-            # Check for country
-            is_valid_country, country_name = self.validate_country(word_clean)
-            if is_valid_country:
-                entities.append(ExtractedEntity(
-                    text=country_name,
-                    label='country',
-                    confidence=0.9,
-                    start=text.find(word),
-                    end=text.find(word) + len(word)
-                ))
-                processed_words.add(word_clean)
+                print(f"Individual city found: '{city_name}'")
         
         # Extract multi-word patterns (like "Lekki Phase 1")
         multi_word_patterns = [
@@ -545,6 +598,7 @@ class NLPProcessor:
                     end=match.end()
                 ))
         
+        print(f"Final extracted entities: {[(e.text, e.label) for e in entities]}")
         return entities
     
     def _extract_contextual_numbers(self, text: str) -> List[ExtractedEntity]:
@@ -689,8 +743,25 @@ class NLPProcessor:
                                   extracted_data: Dict = None) -> str:
         """Generate contextually appropriate follow-up questions."""
         
-        if not missing_fields:
-            return "Great! I think I have all the information I need. Is there anything else you'd like to add?"
+        # Fields to exclude from follow-up questions (handled by UI components)
+        excluded_fields = {
+            'images', 'amenities', 'smoking_allowed', 'pets_allowed', 
+            'events_allowed', 'children_welcome', 'house_rules',
+            'trust_level_1_discount', 'trust_level_2_discount', 'trust_level_3_discount',
+            'trust_level_4_discount', 'trust_level_5_discount'
+        }
+        
+        # Filter out excluded fields
+        filtered_missing_fields = [
+            field for field in missing_fields 
+            if field.get('key', '').lower() not in excluded_fields
+        ]
+        
+        if not filtered_missing_fields:
+            return "Great! I think I have all the essential information I need. Is there anything else you'd like to add?"
+        
+        # Use filtered fields for the rest of the logic
+        missing_fields = filtered_missing_fields
         
         # Check if we should move to next question based on extracted data
         if extracted_data and self.should_move_to_next_question(extracted_data, missing_fields):
@@ -751,9 +822,6 @@ class NLPProcessor:
         entities = self.extract_entities(text)
         print(f"NLP extracted entities: {[(e.text, e.label) for e in entities]}")
         
-        extracted_data = self._process_entities(entities, text)
-        print(f"NLP processed data: {extracted_data}")
-        
         # Convert entities to extracted data with validation
         extracted_data = {}
         for entity in entities:
@@ -775,6 +843,16 @@ class NLPProcessor:
                         extracted_data[entity.label] = value
                     else:
                         extracted_data[entity.label] = value
+        
+        print(f"NLP processed data: {extracted_data}")
+        
+        # Initialize conversation context if not provided
+        if conversation_context is None:
+            conversation_context = {}
+        
+        # Analyze user intent and sentiment
+        intent = self.classify_intent(text)
+        sentiment = self.analyze_sentiment(text)
         
         # Determine if we should move to next question
         missing_fields = conversation_context.get('missing_fields', [])
