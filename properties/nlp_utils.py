@@ -62,10 +62,11 @@ except ImportError:
     print("Warning: geopy not available. Install with: pip install geopy")
 
 # Download required NLTK data
-try:
-    nltk.data.find('vader_lexicon')
-except LookupError:
-    nltk.download('vader_lexicon')
+if NLTK_AVAILABLE and nltk:
+    try:
+        nltk.data.find('vader_lexicon')
+    except LookupError:
+        nltk.download('vader_lexicon')
 
 @dataclass
 class ExtractedEntity:
@@ -95,15 +96,28 @@ class NLPProcessor:
     
     def __init__(self):
         """Initialize NLP models and processors."""
-        try:
-            self.nlp = spacy.load("en_core_web_sm")
-        except OSError:
-            # Fallback if model not available
+        # Initialize spaCy model
+        if SPACY_AVAILABLE and spacy:
+            try:
+                self.nlp = spacy.load("en_core_web_sm")
+            except OSError:
+                # Fallback if model not available
+                self.nlp = None
+                print("Warning: spaCy model not available. Using fallback extraction.")
+        else:
             self.nlp = None
-            print("Warning: spaCy model not available. Using fallback extraction.")
+            print("Warning: spaCy not available. Using fallback extraction.")
         
         # Initialize sentiment analyzer
-        self.sentiment_analyzer = SentimentIntensityAnalyzer()
+        if NLTK_AVAILABLE and SentimentIntensityAnalyzer:
+            try:
+                self.sentiment_analyzer = SentimentIntensityAnalyzer()
+            except Exception:
+                self.sentiment_analyzer = None
+                print("Warning: NLTK sentiment analyzer not available.")
+        else:
+            self.sentiment_analyzer = None
+            print("Warning: NLTK not available. Sentiment analysis disabled.")
         
         # Initialize geocoding libraries
         if GEONAMES_AVAILABLE:
@@ -600,6 +614,34 @@ class NLPProcessor:
     
     def analyze_sentiment(self, text: str) -> SentimentAnalysis:
         """Analyze sentiment of user input."""
+        if not self.sentiment_analyzer:
+            # Fallback sentiment analysis when NLTK is not available
+            text_lower = text.lower()
+            
+            # Simple keyword-based sentiment detection
+            positive_words = ['good', 'great', 'excellent', 'perfect', 'love', 'like', 'yes', 'sure', 'ok', 'okay']
+            negative_words = ['bad', 'terrible', 'hate', 'no', 'not', 'never', 'wrong', 'error', 'problem']
+            
+            positive_count = sum(1 for word in positive_words if word in text_lower)
+            negative_count = sum(1 for word in negative_words if word in text_lower)
+            
+            if positive_count > negative_count:
+                sentiment = 'positive'
+                confidence = 0.6
+            elif negative_count > positive_count:
+                sentiment = 'negative'
+                confidence = 0.6
+            else:
+                sentiment = 'neutral'
+                confidence = 0.5
+            
+            return SentimentAnalysis(
+                sentiment=sentiment,
+                confidence=confidence,
+                compound_score=0.0
+            )
+        
+        # Use NLTK sentiment analyzer
         scores = self.sentiment_analyzer.polarity_scores(text)
         
         # Determine sentiment
