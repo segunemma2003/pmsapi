@@ -1550,12 +1550,12 @@ class AIPropertyExtractView(APIView):
             local_extraction_successful = conversation_context.get('local_extraction_successful', False)
             already_extracted_data = conversation_context.get('extracted_data', {})
             
-            if local_extraction_successful and already_extracted_data:
-                # Frontend already extracted data - use it and generate smart follow-up
-                print(f"Frontend extracted: {already_extracted_data}")
+            if local_extraction_successful:
+                # Frontend already processed - proceed to next missing field
+                print(f"Frontend extraction successful. Already extracted: {already_extracted_data}")
                 
-                # Use the already extracted data
-                extracted_data = already_extracted_data
+                # Use the already extracted data (if any)
+                extracted_data = already_extracted_data if already_extracted_data else {}
                 
                 # Generate follow-up question based on what's missing
                 missing_fields = conversation_context.get('missing_fields', [])
@@ -1568,23 +1568,29 @@ class AIPropertyExtractView(APIView):
                         break
                 
                 if next_field:
-                    # Acknowledge what was extracted and ask for next field
+                    # Acknowledge what was extracted (if anything) and ask for next field
                     property_type = extracted_data.get('property_type', 'property')
                     field_name = next_field['name'].lower()
                     
-                    if property_type == 'house':
-                        if field_name == 'bedrooms':
-                            follow_up_question = f"Great! I see you have a house. How many bedrooms does your house have?"
-                        elif field_name == 'bathrooms':
-                            follow_up_question = f"Perfect! How many bathrooms does your house have?"
-                        elif field_name == 'guest_capacity':
-                            follow_up_question = f"Excellent! How many guests can your house accommodate?"
-                        elif field_name == 'nightly_rate':
-                            follow_up_question = f"Nice! What price would you like to charge per night for your house?"
+                    # Generate contextual follow-up based on what we know
+                    if extracted_data:
+                        # We have some data, acknowledge it
+                        if property_type == 'house':
+                            if field_name == 'bedrooms':
+                                follow_up_question = f"Great! I see you have a house. How many bedrooms does your house have?"
+                            elif field_name == 'bathrooms':
+                                follow_up_question = f"Perfect! How many bathrooms does your house have?"
+                            elif field_name == 'guest_capacity':
+                                follow_up_question = f"Excellent! How many guests can your house accommodate?"
+                            elif field_name == 'nightly_rate':
+                                follow_up_question = f"Nice! What price would you like to charge per night for your house?"
+                            else:
+                                follow_up_question = f"Great! I see you have a house. What is your {field_name}?"
                         else:
-                            follow_up_question = f"Great! I see you have a house. What is your {field_name}?"
+                            follow_up_question = f"Great! I see you have a {property_type}. What is your {field_name}?"
                     else:
-                        follow_up_question = f"Great! I see you have a {property_type}. What is your {field_name}?"
+                        # No data extracted, but still proceed to next field
+                        follow_up_question = f"What is your {field_name}?"
                 else:
                     follow_up_question = "Perfect! I have all the information I need. Is there anything else you'd like to add?"
                 

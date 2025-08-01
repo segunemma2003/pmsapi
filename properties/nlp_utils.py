@@ -4,13 +4,39 @@ This module provides advanced NLP capabilities for better information extraction
 """
 
 import re
-import spacy
-import numpy as np
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass
-from transformers import pipeline
-import nltk
-from nltk.sentiment import SentimentIntensityAnalyzer
+
+# Conditional imports for NLP packages
+try:
+    import spacy
+    SPACY_AVAILABLE = True
+except ImportError:
+    SPACY_AVAILABLE = False
+    spacy = None
+
+try:
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    NUMPY_AVAILABLE = False
+    np = None
+
+try:
+    from transformers import pipeline
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    TRANSFORMERS_AVAILABLE = False
+    pipeline = None
+
+try:
+    import nltk
+    from nltk.sentiment import SentimentIntensityAnalyzer
+    NLTK_AVAILABLE = True
+except ImportError:
+    NLTK_AVAILABLE = False
+    nltk = None
+    SentimentIntensityAnalyzer = None
 
 # Import city/country validation libraries
 try:
@@ -155,33 +181,6 @@ class NLPProcessor:
             'mayotte', 'reunion', 'cape verde', 'sao tome and principe', 'angola', 'saint helena',
             'ascension', 'tristan da cunha', 'western sahara'
         }
-            'scotland', 'wales', 'northern ireland', 'ireland', 'france', 'germany', 'italy',
-            'spain', 'portugal', 'netherlands', 'belgium', 'switzerland', 'austria', 'denmark',
-            'norway', 'sweden', 'finland', 'iceland', 'poland', 'czech republic', 'slovakia',
-            'hungary', 'romania', 'bulgaria', 'greece', 'turkey', 'russia', 'ukraine', 'belarus',
-            'latvia', 'lithuania', 'estonia', 'moldova', 'georgia', 'armenia', 'azerbaijan',
-            'kazakhstan', 'uzbekistan', 'turkmenistan', 'kyrgyzstan', 'tajikistan', 'afghanistan',
-            'pakistan', 'india', 'bangladesh', 'sri lanka', 'nepal', 'bhutan', 'myanmar',
-            'thailand', 'laos', 'cambodia', 'vietnam', 'malaysia', 'singapore', 'indonesia',
-            'philippines', 'brunei', 'east timor', 'papua new guinea', 'australia', 'new zealand',
-            'fiji', 'vanuatu', 'solomon islands', 'new caledonia', 'french polynesia', 'samoa',
-            'tonga', 'tuvalu', 'kiribati', 'marshall islands', 'micronesia', 'palau', 'nauru',
-            'japan', 'south korea', 'north korea', 'china', 'mongolia', 'taiwan', 'hong kong',
-            'macau', 'brazil', 'argentina', 'chile', 'peru', 'bolivia', 'paraguay', 'uruguay',
-            'ecuador', 'colombia', 'venezuela', 'guyana', 'suriname', 'french guiana', 'falkland islands',
-            'south africa', 'namibia', 'botswana', 'zimbabwe', 'mozambique', 'zambia', 'malawi',
-            'tanzania', 'kenya', 'uganda', 'rwanda', 'burundi', 'democratic republic of congo',
-            'republic of congo', 'gabon', 'equatorial guinea', 'cameroon', 'central african republic',
-            'chad', 'niger', 'nigeria', 'benin', 'togo', 'ghana', 'ivory coast', 'liberia',
-            'sierra leone', 'guinea', 'guinea bissau', 'senegal', 'gambia', 'mauritania',
-            'morocco', 'algeria', 'tunisia', 'libya', 'egypt', 'sudan', 'south sudan', 'ethiopia',
-            'eritrea', 'djibouti', 'somalia', 'madagascar', 'mauritius', 'seychelles', 'comoros',
-            'mayotte', 'reunion', 'cape verde', 'sao tome and principe', 'angola', 'saint helena',
-            'ascension', 'tristan da cunha', 'western sahara', 'morocco', 'algeria', 'tunisia',
-            'libya', 'egypt', 'sudan', 'south sudan', 'ethiopia', 'eritrea', 'djibouti', 'somalia',
-            'madagascar', 'mauritius', 'seychelles', 'comoros', 'mayotte', 'reunion', 'cape verde',
-            'sao tome and principe', 'angola', 'saint helena', 'ascension', 'tristan da cunha'
-        }
         
         # Property-specific entity patterns
         self.PROPERTY_ENTITIES = {
@@ -189,7 +188,12 @@ class NLPProcessor:
                 r'\b(house|apartment|villa|cabin|loft|condo|townhouse|studio|penthouse|chalet|cottage|bungalow|mansion|duplex|triplex)\b',
                 r'\b(single family|multi family|residential|commercial|vacation home|beach house|mountain cabin)\b',
                 r'\b(it\'s|it is|this is|that is|we have|i have)\s+(?:a\s+)?(small\s+|large\s+|big\s+|tiny\s+)?(house|apartment|villa|cabin|loft|condo|townhouse|studio|penthouse|chalet|cottage|bungalow|mansion|duplex|triplex)\b',
-                r'\b(my|our|the)\s+(?:property|place|home|listing)\s+(?:is\s+)?(?:a\s+)?(small\s+|large\s+|big\s+|tiny\s+)?(house|apartment|villa|cabin|loft|condo|townhouse|studio|penthouse|chalet|cottage|bungalow|mansion|duplex|triplex)\b'
+                r'\b(my|our|the)\s+(?:property|place|home|listing)\s+(?:is\s+)?(?:a\s+)?(small\s+|large\s+|big\s+|tiny\s+)?(house|apartment|villa|cabin|loft|condo|townhouse|studio|penthouse|chalet|cottage|bungalow|mansion|duplex|triplex)\b',
+                # More direct patterns for property types
+                r'\b(?:a\s+)?(house|apartment|villa|cabin|loft|condo|townhouse|studio|penthouse|chalet|cottage|bungalow|mansion|duplex|triplex)\b',
+                r'\b(house|apartment|villa|cabin|loft|condo|townhouse|studio|penthouse|chalet|cottage|bungalow|mansion|duplex|triplex)\s+(?:for\s+rent|listing|property)\b',
+                # Handle cases where user just says "house" or similar
+                r'(?:^|\s)(house|apartment|villa|cabin|loft|condo|townhouse|studio|penthouse|chalet|cottage|bungalow|mansion|duplex|triplex)(?:\s|$|[.,!?])',
             ],
             'location': [
                 r'\b(city|town|village|neighborhood|district|area|zone|region|state|province|country)\b',
@@ -394,13 +398,35 @@ class NLPProcessor:
             for pattern in patterns:
                 matches = re.finditer(pattern, text, re.IGNORECASE)
                 for match in matches:
-                    entities.append(ExtractedEntity(
-                        text=match.group(),
-                        label=entity_type,
-                        confidence=0.7,
-                        start=match.start(),
-                        end=match.end()
-                    ))
+                    # Debug logging for property type extraction
+                    if entity_type == 'property_type':
+                        print(f"Property type pattern matched: '{match.group()}' from text: '{text}'")
+                    
+                    # For property_type, extract the actual property type word
+                    if entity_type == 'property_type':
+                        # Find the property type word within the match
+                        property_types = ['house', 'apartment', 'villa', 'cabin', 'loft', 'condo', 'townhouse', 'studio', 'penthouse', 'chalet', 'cottage', 'bungalow', 'mansion', 'duplex', 'triplex']
+                        matched_text = match.group().lower()
+                        
+                        for prop_type in property_types:
+                            if prop_type in matched_text:
+                                print(f"Extracted property type: '{prop_type}' from match: '{matched_text}'")
+                                entities.append(ExtractedEntity(
+                                    text=prop_type,
+                                    label=entity_type,
+                                    confidence=0.9,
+                                    start=match.start(),
+                                    end=match.end()
+                                ))
+                                break
+                    else:
+                        entities.append(ExtractedEntity(
+                            text=match.group(),
+                            label=entity_type,
+                            confidence=0.7,
+                            start=match.start(),
+                            end=match.end()
+                        ))
         
         # Context-aware number extraction
         numbers = self._extract_contextual_numbers(text)
@@ -676,11 +702,15 @@ class NLPProcessor:
         
         return questions.get(field_name, f"{starter}{field_name}? 🏡")
     
-    def extract_property_data(self, text: str, conversation_context: Dict) -> Dict[str, Any]:
-        """Main extraction method that combines all NLP capabilities."""
+    def extract_property_data(self, text: str, conversation_context: Dict = None) -> Dict[str, Any]:
+        """Extract property data from text with conversation flow."""
+        print(f"NLP extracting from text: '{text}'")
+        
         entities = self.extract_entities(text)
-        intent = self.classify_intent(text)
-        sentiment = self.analyze_sentiment(text)
+        print(f"NLP extracted entities: {[(e.text, e.label) for e in entities]}")
+        
+        extracted_data = self._process_entities(entities, text)
+        print(f"NLP processed data: {extracted_data}")
         
         # Convert entities to extracted data with validation
         extracted_data = {}
