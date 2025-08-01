@@ -1497,1011 +1497,369 @@ END:VCALENDAR"""
 
 class AIPropertyExtractView(APIView):
     """
-    Enhanced AI extraction that supports conversational property onboarding
-    with better extraction and conversational title/description generation
+    Simplified AI extraction focused on conversational flow
+    No repetitive questions, direct extraction, fallback to guided prompts
     """
     
     def post(self, request):
         try:
             data = request.data
-            
-            # Extract parameters
             user_input = data.get('user_input', '')
             conversation_context = data.get('conversation_context', {})
-            extraction_config = data.get('extraction_config', {})
             
-            # Get context data
+            # Get current state
             extracted_data = conversation_context.get('extracted_data', {})
-            missing_fields = conversation_context.get('missing_fields', [])
             completion_percentage = conversation_context.get('completion_percentage', 0)
-            previous_responses = conversation_context.get('previous_responses', [])
-            extraction_attempts = conversation_context.get('extraction_attempts', 0)
-            local_extraction_successful = conversation_context.get('local_extraction_successful', False)
+            asked_fields = set(conversation_context.get('asked_fields', []))
             
-            print(f"Backend received - Local extraction successful: {local_extraction_successful}")
-            print(f"Backend received - Extracted data: {extracted_data}")
+            print(f"🤖 AI Processing: '{user_input}' | Completion: {completion_percentage}%")
             
-            # Use NLP if available, otherwise fallback to OpenAI
-            if NLP_AVAILABLE and nlp_processor:
-                result = self._process_with_nlp(user_input, conversation_context, extraction_config)
+            # Skip AI for UI-only fields
+            UI_ONLY_FIELDS = {
+                'address', 'house_number', 'street', 'state', 'postal_code', 
+                'neighborhood', 'latitude', 'longitude', 'images', 'amenities',
+                'trust_level_1_discount', 'trust_level_2_discount', 'trust_level_3_discount',
+                'trust_level_4_discount', 'trust_level_5_discount'
+            }
+            
+            # Define conversational fields only
+            CONVERSATIONAL_FIELDS = [
+                'property_type', 'place_type', 'city', 'country', 'max_guests', 
+                'bedrooms', 'bathrooms', 'display_price', 'title', 'description',
+                'smoking_allowed', 'pets_allowed', 'events_allowed', 'children_welcome',
+                'check_in_time_start', 'check_out_time', 'instant_book_enabled'
+            ]
+            
+            # Find missing conversational fields
+            missing_fields = [
+                field for field in CONVERSATIONAL_FIELDS 
+                if field not in asked_fields and not self._field_is_filled(extracted_data, field)
+            ]
+            
+            print(f"Missing conversational fields: {missing_fields}")
+            
+            # If 70%+ complete or no missing conversational fields, move to guided prompts
+            if completion_percentage >= 70 or not missing_fields:
+                return Response({
+                    "success": True,
+                    "extracted_data": {},
+                    "follow_up_question": "Perfect! Let's complete the final details with some quick selections!",
+                    "next_action": "transition_to_guided",
+                    "confidence": 0.9
+                })
+            
+            # Try extraction with focused prompt
+            if OPENAI_API_KEY and openai_client:
+                result = self._extract_with_focused_prompt(user_input, extracted_data, missing_fields)
             else:
-                result = self._process_with_openai(user_input, conversation_context, extraction_config)
+                result = self._fallback_extraction(user_input, missing_fields)
             
             return Response({
                 "success": True,
-                "extracted_entities": result.get('extracted_entities', []),
-                "user_intent": result.get('user_intent', 'provide_information'),
-                "sentiment_analysis": result.get('sentiment_analysis', {}),
-                "extracted_data": result.get('extracted_data', {}),
-                "follow_up_question": result.get('follow_up_question', ''),
-                "confidence": result.get('confidence', 0.8)
+                **result
             })
             
         except Exception as e:
+            print(f"❌ AI extraction error: {e}")
             return Response({
                 "success": False,
-                "error": str(e)
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    def _process_with_nlp(self, user_input: str, conversation_context: Dict, extraction_config: Dict) -> Dict:
-        """Process user input using NLP capabilities."""
-        try:
-            # Check if frontend already extracted data
-            local_extraction_successful = conversation_context.get('local_extraction_successful', False)
-            already_extracted_data = conversation_context.get('extracted_data', {})
-            
-            if local_extraction_successful:
-                # Frontend already processed - proceed to next missing field
-                print(f"Frontend extraction successful. Already extracted: {already_extracted_data}")
-                
-                # Use the already extracted data (if any)
-                extracted_data = already_extracted_data if already_extracted_data else {}
-                
-                # Generate follow-up question based on what's missing
-                missing_fields = conversation_context.get('missing_fields', [])
-                
-                # Fields to exclude from follow-up questions (handled by UI components)
-                excluded_fields = {
-                    'images', 'amenities', 'smoking_allowed', 'pets_allowed', 
-                    'events_allowed', 'children_welcome', 'house_rules',
-                    'trust_level_1_discount', 'trust_level_2_discount', 'trust_level_3_discount',
-                    'trust_level_4_discount', 'trust_level_5_discount'
-                }
-                
-                # Filter out excluded fields
-                filtered_missing_fields = [
-                    field for field in missing_fields 
-                    if field.get('key', '').lower() not in excluded_fields
-                ]
-                
-                # Find the next field to ask about
-                next_field = None
-                for field in filtered_missing_fields:
-                    if field['key'] not in extracted_data:
-                        next_field = field
-                        break
-                
-                if next_field:
-                    # Acknowledge what was extracted (if anything) and ask for next field
-                    property_type = extracted_data.get('property_type', 'property')
-                    field_name = next_field['name'].lower()
-                    
-                    # Generate contextual follow-up based on what we know
-                    if extracted_data:
-                        # We have some data, acknowledge it
-                        if property_type == 'house':
-                            if field_name == 'bedrooms':
-                                follow_up_question = f"Great! I see you have a house. How many bedrooms does your house have?"
-                            elif field_name == 'bathrooms':
-                                follow_up_question = f"Perfect! How many bathrooms does your house have?"
-                            elif field_name == 'guest_capacity':
-                                follow_up_question = f"Excellent! How many guests can your house accommodate?"
-                            elif field_name == 'nightly_rate':
-                                follow_up_question = f"Nice! What price would you like to charge per night for your house?"
-                            else:
-                                follow_up_question = f"Great! I see you have a house. What is your {field_name}?"
-                        else:
-                            follow_up_question = f"Great! I see you have a {property_type}. What is your {field_name}?"
-                    else:
-                        # No data extracted, but still proceed to next field
-                        follow_up_question = f"What is your {field_name}?"
-                else:
-                    follow_up_question = "Perfect! I have all the information I need. Is there anything else you'd like to add?"
-                
-                return {
-                    'extracted_entities': [],
-                    'user_intent': 'provide_information',
-                    'sentiment_analysis': {'sentiment': 'positive', 'confidence': 0.9},
-                    'extracted_data': extracted_data,  # Return the already extracted data
-                    'follow_up_question': follow_up_question,
-                    'confidence': 0.9
-                }
-            else:
-                # No local extraction - do full extraction
-                nlp_result = nlp_processor.extract_property_data(user_input, conversation_context)
-                
-                # Merge with existing extracted data
-                existing_data = conversation_context.get('extracted_data', {})
-                new_data = nlp_result.get('extracted_data', {})
-                
-                # Update extracted data (don't overwrite existing data)
-                for key, value in new_data.items():
-                    if key not in existing_data or not existing_data[key]:
-                        existing_data[key] = value
-                
-                return {
-                    'extracted_entities': nlp_result.get('extracted_entities', []),
-                    'user_intent': nlp_result.get('user_intent', 'provide_information'),
-                    'sentiment_analysis': nlp_result.get('sentiment_analysis', {}),
-                    'extracted_data': existing_data,
-                    'follow_up_question': nlp_result.get('follow_up_question', ''),
-                    'confidence': 0.9
-                }
-                
-        except Exception as e:
-            print(f"NLP processing failed: {e}")
-            # Fallback to OpenAI
-            return self._process_with_openai(user_input, conversation_context, extraction_config)
+                "extracted_data": {},
+                "follow_up_question": "I'd love to know more about your property! What can you tell me?",
+                "confidence": 0.5
+            })
     
-    def _extract_property_data(self, request):
-        """Enhanced extraction with better AI prompting"""
-        user_text = request.data.get("text", "")
-        if not user_text:
-            return Response({"error": "No text provided."}, status=status.HTTP_400_BAD_REQUEST)
+    def _field_is_filled(self, data: dict, field: str) -> bool:
+        """Check if a field has meaningful data"""
+        value = data.get(field)
+        if value is None or value == '' or value == 0:
+            return False
+        if isinstance(value, list) and len(value) == 0:
+            return False
+        if isinstance(value, str) and value.strip() == '':
+            return False
+        return True
+    
+    def _extract_with_focused_prompt(self, user_input: str, extracted_data: dict, missing_fields: list) -> dict:
+        """Extract using a focused, simple prompt"""
+        
+        # Create field context for the most important missing fields
+        field_context = []
+        for field in missing_fields[:3]:  # Focus on top 3 missing fields
+            field_info = self._get_field_info(field)
+            field_context.append(f"- {field}: {field_info}")
+        
+        prompt = f"""Extract property information from this user response: "{user_input}"
 
-        prompt = f"""
-You are an expert property listing assistant. Extract comprehensive information from this property description:
+FOCUS ON THESE MISSING FIELDS:
+{chr(10).join(field_context)}
 
-\"\"\"{user_text}\"\"\"
-
-Extract ALL possible information and respond in this exact JSON format:
-{{
-  "extracted": {{
-    "property_type": "apartment|house|villa|cabin|loft|other",
-    "place_type": "entire_place|private_room|shared_room", 
-    "city": "city name",
-    "country": "country name",
-    "address": "full address if mentioned",
-    "house_number": "house/building number",
-    "street": "street name",
-    "neighborhood": "neighborhood/area name",
-    "bedrooms": number,
-    "bathrooms": number,
-    "beds": number,
-    "max_guests": number,
-    "square_feet": number,
-    "amenities": ["wifi", "kitchen", "tv", "air_conditioning", "parking", "pool", "washer", "dryer", "dishwasher", "gym", "hot_tub", "balcony", "garden"],
-    "display_price": number,
-    "price_per_night": number,
-    "smoking_allowed": true/false,
-    "pets_allowed": true/false,
-    "events_allowed": true/false,
-    "children_welcome": true/false,
-    "instant_book_enabled": true/false,
-    "minimum_stay": number,
-    "maximum_stay": number,
-    "check_in_time_start": "HH:MM",
-    "check_out_time": "HH:MM",
-    "trust_level_1_discount": number,
-    "trust_level_2_discount": number,
-    "trust_level_3_discount": number,
-    "trust_level_4_discount": number,
-    "trust_level_5_discount": number,
-    "title": "suggested title",
-    "description": "enhanced description"
-  }},
-  "titles": ["3 creative property titles"],
-  "descriptions": ["3 detailed descriptions"],
-  "confidence_score": 0.0-1.0,
-  "insights": {{
-    "hosting_style": "hands-on|relaxed|professional|friendly",
-    "property_vibe": "cozy|modern|luxury|rustic|artistic|family-friendly",
-    "target_guests": "business|leisure|families|couples|solo",
-    "unique_features": ["list of special features"],
-    "location_highlights": ["nearby attractions or benefits"]
-  }}
-}}
+CURRENT DATA: {json.dumps(extracted_data, indent=2)}
 
 EXTRACTION RULES:
-1. Use ONLY exact values from allowed lists for property_type, place_type, amenities
-2. For trust level discounts, extract any percentage mentions (Bronze 5%, Silver 10%, etc.)
-3. Set confidence_score based on information completeness
-4. Extract pricing even if mentioned casually ("around $100", "about 150 per night")
-5. Infer boolean values from context ("no smoking" = smoking_allowed: false)
-6. Extract location details carefully (distinguish city from neighborhood)
-7. For times, convert to 24-hour format (3pm = "15:00")
-8. CRITICAL: If you see numbers in addresses like "10 Ikota Villa Estate", extract "10" as house_number, NOT as max_guests or price
-9. Only extract guest counts when clearly stated: "4 guests", "accommodates 6 people"
-10. Only extract prices when clearly stated: "$150 per night", "costs $200"
-"""
+1. Extract ONLY clear, explicit information
+2. Don't guess or infer beyond what's directly stated
+3. Property types: apartment, house, villa, cabin, loft, other
+4. Place types: entire_place, private_room, shared_room  
+5. Numbers: extract only when context is clear (avoid address numbers)
+6. Booleans: true/false only when explicitly stated
+7. Prices: only when $ symbol or "price/cost/rate" mentioned
+
+If no clear information found, return empty extraction.
+
+Respond in JSON:
+{{
+  "extracted_data": {{"field": "value"}},
+  "follow_up_question": "Natural question for next missing field",
+  "confidence": 0.0-1.0,
+  "next_action": "continue_conversation"
+}}
+
+ONLY ask about fields that are genuinely missing and conversational."""
 
         try:
-            # Check if OpenAI client is available
-            if not openai_client:
-                return Response({
-                    "error": "AI service is not configured. Please contact support."
-                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-            
             response = openai_client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=1200,
+                max_tokens=400,
                 temperature=0.3,
             )
             
             ai_content = response.choices[0].message.content
             result = self._parse_ai_response(ai_content)
-            result = self._validate_and_enhance_extraction(result)
             
-            return Response(result)
+            # Validate extracted data
+            if "extracted_data" in result:
+                result["extracted_data"] = self._validate_extracted_fields(result["extracted_data"])
             
-        except Exception as e:
-            logger.error(f"AI extraction failed: {str(e)}")
-            return Response({"error": str(e)}, status=500)
-    
-    def _progressive_extraction(self, request):
-        """Enhanced progressive extraction with better context understanding and action control"""
-        current_response = request.data.get("current_response", "")
-        question_context = request.data.get("question_context", "")
-        previous_data = request.data.get("previous_data", {})
-        conversation_history = request.data.get("conversation_history", [])
-        current_completion = request.data.get("current_completion_percentage", 0)
-        missing_fields_detail = request.data.get("missing_fields_detail", [])
-        
-        if not current_response:
-            return Response({"error": "Current response required"}, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Build conversation context
-        conversation_context = ""
-        if conversation_history:
-            conversation_context = "\n".join([
-                f"User: {entry}" if isinstance(entry, str) else f"User: {entry.get('response', '')}"
-                for entry in conversation_history[-3:]
-            ])
-        
-        # Build missing fields context
-        missing_fields_context = ""
-        if missing_fields_detail:
-            missing_fields_context = "\n".join([
-                f"- {field['name']} ({field['key']}): {field['description']} - Examples: {field['examples']} (Priority: {field['weight']})"
-                for field in missing_fields_detail[:5]  # Focus on top 5 missing fields
-            ])
-
-        prompt = f"""
-    You are extracting property information progressively from an ongoing conversation.
-
-    CONVERSATION CONTEXT:
-    {conversation_context}
-
-    CURRENT QUESTION CONTEXT: {question_context}
-    USER'S CURRENT RESPONSE: {current_response}
-
-    PREVIOUSLY EXTRACTED DATA: {json.dumps(previous_data, indent=2)}
-    CURRENT COMPLETION: {current_completion}%
-
-    MISSING FIELDS NEEDED:
-    {missing_fields_context}
-
-    CRITICAL EXTRACTION RULES:
-    1. Extract trust level discount percentages (Bronze 2%, Silver 5%, Gold 8%, Platinum 12%, Diamond 15%)
-    2. Identify property features, amenities, and policies mentioned
-    3. Extract location details (city, country, neighborhood, address, house_number, street)
-    4. Pick up pricing hints, capacity details, room information
-    5. Understand hosting preferences and house rules
-    6. Detect any timing information (check-in/out times)
-    7. AVOID extracting numbers from addresses as guest counts or prices
-    8. When you see "10 Ikota Villa Estate" - extract "10" as house_number, "Ikota Villa Estate" as street/address
-    9. Only extract guest counts when explicitly stated: "4 guests", "accommodates 6"
-    10. Only extract prices when clear: "$150 per night", "costs $200"
-
-    DECISION MAKING:
-    Based on the current completion percentage and missing fields, decide the next action:
-    - "continue_conversation" if you should ask another question (completion < 70% and conversational fields remain)
-    - "transition_to_guided" if you should move to guided prompts (completion >= 70% OR only guided fields remain like images, amenities, location)
-    - "complete" if the form is ready to submit (all required fields are filled)
-
-    Respond in this exact JSON format:
-    {{
-    "extracted": {{
-        "property_type": "apartment|house|villa|cabin|loft|other",
-        "place_type": "entire_place|private_room|shared_room",
-        "city": "city name",
-        "country": "country name",
-        "address": "full address",
-        "house_number": "building number",
-        "street": "street name",
-        "neighborhood": "area name",
-        "bedrooms": number,
-        "bathrooms": number,
-        "max_guests": number,
-        "amenities": ["list from: wifi, kitchen, tv, air_conditioning, parking, pool, washer, dryer, dishwasher, gym, hot_tub, balcony, garden"],
-        "display_price": number,
-        "price_per_night": number,
-        "smoking_allowed": true/false,
-        "pets_allowed": true/false,
-        "events_allowed": true/false,
-        "children_welcome": true/false,
-        "instant_book_enabled": true/false,
-        "trust_level_1_discount": number,
-        "trust_level_2_discount": number,
-        "trust_level_3_discount": number,
-        "trust_level_4_discount": number,
-        "trust_level_5_discount": number,
-        "check_in_time_start": "HH:MM",
-        "check_out_time": "HH:MM",
-        "title": "title suggestion",
-        "description": "description snippet"
-    }},
-    "next_action": "continue_conversation|transition_to_guided|complete",
-    "next_question": "Your next question here (only if next_action is continue_conversation)",
-    "confidence": 0.95,
-    "reasoning": "Why you made this decision",
-    "insights": {{
-        "hosting_style": "hands-on|relaxed|professional|friendly",
-        "property_vibe": "cozy|modern|luxury|rustic|artistic|family-friendly",
-        "guest_focus": "business|leisure|families|couples|solo",
-        "extracted_confidence": 0.0-1.0
-    }}
-    }}
-
-    ONLY include fields where you found NEW information. Leave out fields with no new data.
-    Use exact values from allowed lists. Convert times to 24-hour format.
-    """
-
-        try:
-            # Check if OpenAI client is available
-            if not openai_client:
-                return Response({
-                    "error": "AI service is not configured. Please contact support."
-                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            # Generate follow-up question if none provided
+            if not result.get("follow_up_question"):
+                result["follow_up_question"] = self._generate_next_question(missing_fields, extracted_data)
             
-            response = openai_client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=800,
-                temperature=0.4,
-            )
-            
-            ai_content = response.choices[0].message.content
-            result = self._parse_ai_response(ai_content)
-            
-            if "extracted" in result:
-                result["extracted"] = self._validate_extracted_fields(result["extracted"])
-            
-            # Ensure required fields are present
-            if "next_action" not in result:
-                if current_completion >= 70:
-                    result["next_action"] = "transition_to_guided"
-                else:
-                    result["next_action"] = "continue_conversation"
-            
-            if "confidence" not in result:
-                result["confidence"] = 0.8
-            
-            if "reasoning" not in result:
-                result["reasoning"] = f"Completion at {current_completion}% - {'ready for guided prompts' if current_completion >= 70 else 'continuing conversation'}"
-            
-            return Response(result)
+            return result
             
         except Exception as e:
-            logger.error(f"Progressive extraction failed: {str(e)}")
-            return Response({"error": str(e)}, status=500)
+            print(f"OpenAI extraction failed: {e}")
+            return self._fallback_extraction(user_input, missing_fields)
     
-    def _generate_follow_up_question(self, request):
-        """Enhanced question generation with comprehensive context awareness"""
-        conversation_history = request.data.get("conversation_history", [])
-        current_step = request.data.get("current_step", 1)
-        extracted_so_far = request.data.get("extracted_data", {})
-        completion_percentage = request.data.get("completion_percentage", 0)
-        missing_fields = request.data.get("missing_fields", "")
-        missing_fields_detail = request.data.get("missing_fields_detail", [])
-        current_data_summary = request.data.get("current_data_summary", "")
-        last_user_response = request.data.get("last_user_response", "")
+    def _fallback_extraction(self, user_input: str, missing_fields: list) -> dict:
+        """Simple fallback when AI fails"""
+        # Try basic pattern matching
+        extracted = {}
+        text_lower = user_input.lower()
         
-        # Build enhanced context from conversation
-        conversation_context = ""
-        if conversation_history:
-            conversation_context = "\n".join([
-                f"User: {entry}" if isinstance(entry, str) else f"User: {entry.get('response', '')}"
-                for entry in conversation_history[-3:]
-            ])
+        # Property type
+        if 'property_type' in missing_fields:
+            for prop_type in ['house', 'apartment', 'villa', 'cabin', 'loft']:
+                if prop_type in text_lower:
+                    extracted['property_type'] = prop_type
+                    break
         
-        extracted_context = json.dumps(extracted_so_far, indent=2) if extracted_so_far else "No data extracted yet"
+        # Place type
+        if 'place_type' in missing_fields:
+            if 'entire place' in text_lower or 'whole place' in text_lower:
+                extracted['place_type'] = 'entire_place'
+            elif 'private room' in text_lower:
+                extracted['place_type'] = 'private_room'
+            elif 'shared room' in text_lower:
+                extracted['place_type'] = 'shared_room'
         
-        # Create detailed missing fields context
-        missing_fields_context = ""
-        if missing_fields_detail:
-            missing_fields_context = "\n".join([
-                f"- {field['name']} ({field['key']}): {field['description']} - Examples: {field['examples']} (Priority: {field['weight']})"
-                for field in missing_fields_detail[:5]  # Focus on top 5 missing fields
-            ])
+        # Simple number extraction (be very careful about context)
+        if not any(word in text_lower for word in ['street', 'avenue', 'road', 'estate', 'villa']):
+            # Only extract numbers if no address indicators
+            
+            if 'max_guests' in missing_fields:
+                guest_match = re.search(r'(\d+)\s*(guest|people|person)', text_lower)
+                if guest_match:
+                    extracted['max_guests'] = int(guest_match.group(1))
+            
+            if 'bedrooms' in missing_fields:
+                bed_match = re.search(r'(\d+)\s*(bedroom|bed)', text_lower)
+                if bed_match:
+                    extracted['bedrooms'] = int(bed_match.group(1))
+            
+            if 'bathrooms' in missing_fields:
+                bath_match = re.search(r'(\d+)\s*(bathroom|bath)', text_lower)
+                if bath_match:
+                    extracted['bathrooms'] = int(bath_match.group(1))
+            
+            if 'display_price' in missing_fields:
+                price_match = re.search(r'\$(\d+)', user_input)
+                if price_match or 'price' in text_lower or 'cost' in text_lower:
+                    price_num = re.search(r'(\d+)', user_input)
+                    if price_num:
+                        extracted['display_price'] = int(price_num.group(1))
+                        extracted['price_per_night'] = int(price_num.group(1))
         
-        prompt = f"""
-    Generate the next engaging question for a property onboarding conversation.
-
-    CONVERSATION HISTORY:
-    {conversation_context}
-
-    CURRENT DATA SUMMARY:
-    {current_data_summary}
-
-    EXTRACTED DATA SO FAR:
-    {extracted_context}
-
-    COMPLETION PERCENTAGE: {completion_percentage}%
-    CURRENT STEP: {current_step}
-
-    MISSING FIELDS: {missing_fields}
-
-    DETAILED MISSING FIELDS:
-    {missing_fields_context}
-
-    LAST USER RESPONSE: "{last_user_response}"
-
-    CONTEXT:
-    - If completion < 40%: Focus on basic property details, location, size
-    - If completion 40-70%: Explore amenities, unique features, guest experience  
-    - If completion > 70%: Ask about pricing, policies, hosting preferences
-
-    GENERATION RULES:
-    1. Focus on the HIGHEST PRIORITY missing fields first (highest weight)
-    2. Be SPECIFIC about what information you're looking for
-    3. Reference the user's last response to build context
-    4. Ask for ONE main piece of information per question
-    5. Use the field descriptions and examples to be precise
-    6. Make it conversational and engaging
-    7. Show you understand what they've already shared
-
-    Generate ONE conversational question that:
-    1. Builds on what they've already shared
-    2. Asks for the most important missing information
-    3. Is specific about what you need (use field descriptions)
-    4. Feels natural and engaging
-    5. Encourages detailed responses
-    6. Shows genuine interest in their property
-
-    Return ONLY the question text in this format:
-    {{
-    "question": "Your generated question here"
-    }}
-
-    Make it warm, conversational, and specific.
-    """
-
-        try:
-            # Check if OpenAI client is available
-            if not openai_client:
-                return Response({
-                    "error": "AI service is not configured. Please contact support."
-                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-            
-            response = openai_client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=150,
-                temperature=0.8,
-            )
-            
-            ai_content = response.choices[0].message.content
-            result = self._parse_ai_response(ai_content)
-            
-            # Extract question from result or raw content
-            question = ""
-            if isinstance(result, dict) and "question" in result:
-                question = result["question"]
-            elif isinstance(result, str):
-                question = result
-            else:
-                question = ai_content.strip()
-            
-            # Clean up the question
-            question = re.sub(r'^["\']|["\']$', '', question.strip())
-            
-            return Response({"question": question})
-            
-        except Exception as e:
-            logger.error(f"Question generation failed: {str(e)}")
-            # Enhanced fallback based on missing fields
-            fallback_question = self._generate_fallback_question(missing_fields_detail, completion_percentage)
-            return Response({"question": fallback_question})
+        # City extraction
+        if 'city' in missing_fields:
+            city_match = re.search(r'(?:in|at|located in)\s+([A-Z][a-z]+)', user_input)
+            if city_match:
+                extracted['city'] = city_match.group(1)
+        
+        # Boolean extraction
+        if 'smoking_allowed' in missing_fields:
+            if 'no smoking' in text_lower:
+                extracted['smoking_allowed'] = False
+            elif 'smoking allowed' in text_lower:
+                extracted['smoking_allowed'] = True
+        
+        if 'pets_allowed' in missing_fields:
+            if 'no pets' in text_lower:
+                extracted['pets_allowed'] = False
+            elif 'pets allowed' in text_lower or 'pet friendly' in text_lower:
+                extracted['pets_allowed'] = True
+        
+        # Title/description detection
+        if 'title' in missing_fields and len(user_input) < 100 and len(user_input) > 10:
+            if any(word in text_lower for word in ['cozy', 'beautiful', 'modern', 'charming', 'luxury']):
+                extracted['title'] = user_input.strip()
+        
+        if 'description' in missing_fields and len(user_input) > 50:
+            if any(word in text_lower for word in ['property', 'place', 'home', 'guests', 'stay']):
+                extracted['description'] = user_input.strip()
+        
+        next_question = self._generate_next_question(missing_fields, extracted)
+        
+        return {
+            "extracted_data": extracted,
+            "follow_up_question": next_question,
+            "confidence": 0.7 if extracted else 0.3,
+            "next_action": "continue_conversation"
+        }
     
-    def _generate_conversational_titles(self, request):
-        """Generate engaging, conversational property titles"""
-        property_data = request.data.get("property_data", {})
-        conversation_context = request.data.get("conversation_context", "")
-        style = request.data.get("style", "conversational")
+    def _generate_next_question(self, missing_fields: list, current_data: dict) -> str:
+        """Generate the next logical question"""
+        if not missing_fields:
+            return "Great! Let's move on to the final details."
         
-        property_context = self._build_property_context(property_data)
+        # Priority order for questions
+        field_priority = {
+            'property_type': 1,
+            'city': 2,
+            'max_guests': 3,
+            'bedrooms': 4,
+            'bathrooms': 5,
+            'display_price': 6,
+            'title': 7,
+            'description': 8,
+            'place_type': 9,
+            'country': 10,
+        }
         
-        prompt = f"""
-Create 3 engaging property titles for this listing:
-
-PROPERTY DETAILS:
-{property_context}
-
-CONVERSATION CONTEXT:
-{conversation_context}
-
-Generate 3 distinct title styles:
-1. DESCRIPTIVE & LOCATION-FOCUSED: Highlight location and key features
-2. EXPERIENCE-FOCUSED: Emphasize the guest experience and feeling
-3. UNIQUE & CREATIVE: Creative, memorable, and distinctive
-
-REQUIREMENTS:
-- Each title should be 4-12 words
-- Include the property type and location hint if available
-- Make them engaging and clickable
-- Avoid generic phrases like "Beautiful Property"
-- Include unique selling points mentioned in conversation
-- Match the tone: warm, welcoming, and authentic
-
-Examples of GOOD titles:
-- "Cozy Downtown Loft with Rooftop Views"
-- "Charming Victorian Home Near Golden Gate"
-- "Modern Retreat with Pool & Mountain Views"
-- "Artist's Haven in Historic Arts District"
-
-Return as JSON:
-{{
-  "titles": ["title 1", "title 2", "title 3"],
-  "explanations": ["why this title works", "reasoning for title 2", "reasoning for title 3"]
-}}
-"""
-
-        try:
-            # Check if OpenAI client is available
-            if not openai_client:
-                return Response({
-                    "error": "AI service is not configured. Please contact support."
-                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-            
-            response = openai_client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=500,
-                temperature=0.7,
-            )
-            
-            ai_content = response.choices[0].message.content
-            result = self._parse_ai_response(ai_content)
-            
-            if "titles" not in result or not result["titles"]:
-                result["titles"] = self._generate_fallback_titles(property_data)
-            
-            return Response({
-                "titles": result.get("titles", [])[:3],
-                "explanations": result.get("explanations", [])
-            })
-            
-        except Exception as e:
-            logger.error(f"Title generation failed: {str(e)}")
-            fallback_titles = self._generate_fallback_titles(property_data)
-            return Response({
-                "titles": fallback_titles,
-                "error": "AI generation failed, using fallback titles"
-            })
+        # Sort missing fields by priority
+        sorted_fields = sorted(missing_fields, key=lambda x: field_priority.get(x, 99))
+        next_field = sorted_fields[0]
+        
+        questions = {
+            'property_type': "What type of property is this? (house, apartment, villa, cabin, loft) 🏠",
+            'city': "Which city is your property located in? 🌆",
+            'country': "Which country is your property in? 🌍",
+            'max_guests': "How many guests can your property accommodate? 👥",
+            'bedrooms': "How many bedrooms does it have? 🛏️",
+            'bathrooms': "How many bathrooms are there? 🚿",
+            'display_price': "What's your nightly rate? 💰",
+            'title': "What would you like to call your property listing? ✨",
+            'description': "Can you describe what makes your property special? 📝",
+            'place_type': "Do guests get the entire place or just a private room? 🏡",
+            'smoking_allowed': "Do you allow smoking? 🚭",
+            'pets_allowed': "Are pets allowed? 🐾",
+            'events_allowed': "Do you allow events or parties? 🎉",
+            'children_welcome': "Are children welcome? 👶",
+            'check_in_time_start': "What time can guests check in? ⏰",
+            'check_out_time': "What time should guests check out? ⏰",
+            'instant_book_enabled': "Would you prefer instant booking or manual approval? 📅"
+        }
+        
+        return questions.get(next_field, f"Tell me about your {next_field.replace('_', ' ')}.")
     
-    def _generate_conversational_descriptions(self, request):
-        """Generate engaging, detailed property descriptions"""
-        property_data = request.data.get("property_data", {})
-        conversation_context = request.data.get("conversation_context", "")
-        style = request.data.get("style", "engaging")
-        
-        property_context = self._build_property_context(property_data)
-        
-        prompt = f"""
-Create 3 engaging property descriptions for this listing:
-
-PROPERTY DETAILS:
-{property_context}
-
-CONVERSATION CONTEXT:
-{conversation_context}
-
-Generate 3 distinct description styles:
-
-1. WARM & PERSONAL: Write as if the host is personally welcoming guests
-2. FEATURE-FOCUSED: Highlight amenities, location, and practical benefits
-3. EXPERIENCE-DRIVEN: Paint a picture of the guest experience and lifestyle
-
-REQUIREMENTS:
-- Each description should be 150-300 words
-- Include specific details mentioned in conversation
-- Make guests visualize themselves staying there
-- Mention key amenities and unique features
-- Include location benefits if available
-- End with a welcoming invitation
-- Use active, engaging language
-- Avoid generic real estate language
-
-STRUCTURE for each description:
-- Opening hook (what makes this special)
-- Space details (rooms, capacity, layout)
-- Amenities and features
-- Location benefits
-- Guest experience highlights
-- Warm closing invitation
-
-Return as JSON:
-{{
-  "descriptions": ["description 1", "description 2", "description 3"],
-  "styles": ["warm_personal", "feature_focused", "experience_driven"]
-}}
-"""
-
-        try:
-            # Check if OpenAI client is available
-            if not openai_client:
-                return Response({
-                    "error": "AI service is not configured. Please contact support."
-                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-            
-            response = openai_client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=800,
-                temperature=0.8,
-            )
-            
-            ai_content = response.choices[0].message.content
-            result = self._parse_ai_response(ai_content)
-            
-            if "descriptions" not in result or not result["descriptions"]:
-                result["descriptions"] = self._generate_fallback_descriptions(property_data)
-            
-            return Response({
-                "descriptions": result.get("descriptions", [])[:3],
-                "styles": result.get("styles", ["warm_personal", "feature_focused", "experience_driven"])
-            })
-            
-        except Exception as e:
-            logger.error(f"Description generation failed: {str(e)}")
-            fallback_descriptions = self._generate_fallback_descriptions(property_data)
-            return Response({
-                "descriptions": fallback_descriptions,
-                "error": "AI generation failed, using fallback descriptions"
-            })
+    def _get_field_info(self, field: str) -> str:
+        """Get field information for prompts"""
+        field_info = {
+            'property_type': 'Type of property (house, apartment, villa, cabin, loft, other)',
+            'place_type': 'Space type (entire_place, private_room, shared_room)',
+            'city': 'City name where property is located',
+            'country': 'Country name',
+            'max_guests': 'Maximum number of guests (number)',
+            'bedrooms': 'Number of bedrooms (number)',
+            'bathrooms': 'Number of bathrooms (number)',
+            'display_price': 'Nightly rate in dollars (number)',
+            'title': 'Property listing title (string)',
+            'description': 'Property description (string)',
+            'smoking_allowed': 'Smoking policy (true/false)',
+            'pets_allowed': 'Pet policy (true/false)',
+            'events_allowed': 'Events policy (true/false)',
+            'children_welcome': 'Children policy (true/false)',
+            'check_in_time_start': 'Check-in time (HH:MM format)',
+            'check_out_time': 'Check-out time (HH:MM format)',
+            'instant_book_enabled': 'Booking type (true for instant, false for approval)'
+        }
+        return field_info.get(field, 'Property information')
     
-    def _build_property_context(self, property_data):
-        """Build comprehensive context from property data"""
-        context_parts = []
-        
-        if property_data.get("property_type"):
-            context_parts.append(f"Property Type: {property_data['property_type'].title()}")
-        
-        if property_data.get("place_type"):
-            place_type_map = {
-                "entire_place": "Entire place",
-                "private_room": "Private room", 
-                "shared_room": "Shared room"
-            }
-            context_parts.append(f"Space Type: {place_type_map.get(property_data['place_type'], property_data['place_type'])}")
-        
-        # Location
-        location_parts = []
-        if property_data.get("neighborhood"):
-            location_parts.append(property_data["neighborhood"])
-        if property_data.get("city"):
-            location_parts.append(property_data["city"])
-        if property_data.get("country"):
-            location_parts.append(property_data["country"])
-        
-        if location_parts:
-            context_parts.append(f"Location: {', '.join(location_parts)}")
-        
-        # Capacity and rooms
-        if property_data.get("max_guests"):
-            context_parts.append(f"Capacity: {property_data['max_guests']} guests")
-        
-        rooms = []
-        if property_data.get("bedrooms"):
-            rooms.append(f"{property_data['bedrooms']} bedroom(s)")
-        if property_data.get("bathrooms"):
-            rooms.append(f"{property_data['bathrooms']} bathroom(s)")
-        
-        if rooms:
-            context_parts.append(f"Rooms: {', '.join(rooms)}")
-        
-        # Amenities
-        if property_data.get("amenities"):
-            amenity_labels = {
-                'wifi': 'WiFi', 'kitchen': 'Kitchen', 'tv': 'TV', 
-                'air_conditioning': 'AC', 'parking': 'Parking', 'pool': 'Pool',
-                'washer': 'Washer', 'dryer': 'Dryer', 'dishwasher': 'Dishwasher',
-                'gym': 'Gym', 'hot_tub': 'Hot Tub', 'balcony': 'Balcony', 'garden': 'Garden'
-            }
-            amenity_names = [amenity_labels.get(a, a.title()) for a in property_data["amenities"]]
-            context_parts.append(f"Amenities: {', '.join(amenity_names)}")
-        
-        # Pricing
-        if property_data.get("display_price"):
-            context_parts.append(f"Price: ${property_data['display_price']}/night")
-        
-        # House rules
-        rules = []
-        if property_data.get("smoking_allowed") is not None:
-            rules.append("Smoking allowed" if property_data["smoking_allowed"] else "No smoking")
-        if property_data.get("pets_allowed") is not None:
-            rules.append("Pet-friendly" if property_data["pets_allowed"] else "No pets")
-        if property_data.get("events_allowed") is not None:
-            rules.append("Events welcome" if property_data["events_allowed"] else "No events")
-        if property_data.get("children_welcome") is not None:
-            rules.append("Child-friendly" if property_data["children_welcome"] else "Adults only")
-        
-        if rules:
-            context_parts.append(f"House Rules: {', '.join(rules)}")
-        
-        # Trust level discounts
-        trust_discounts = []
-        for i in range(1, 6):
-            discount_key = f"trust_level_{i}_discount"
-            if property_data.get(discount_key):
-                level_names = {1: "Bronze", 2: "Silver", 3: "Gold", 4: "Platinum", 5: "Diamond"}
-                trust_discounts.append(f"{level_names[i]}: {property_data[discount_key]}%")
-        
-        if trust_discounts:
-            context_parts.append(f"Trust Level Discounts: {', '.join(trust_discounts)}")
-        
-        return "\n".join(context_parts) if context_parts else "Limited property information available"
-    
-    def _generate_fallback_question(self, missing_fields_detail, completion_percentage):
-        """Generate fallback questions when AI fails"""
-        if missing_fields_detail:
-            # Get the highest priority missing field
-            highest_priority_field = max(missing_fields_detail, key=lambda x: x['weight'])
-            field_key = highest_priority_field['key']
-            
-            fallback_questions = {
-                'property_type': "What type of property is this? Is it a house, apartment, villa, cabin, or loft? 🏠",
-                'city': "Where is your property located? Which city? 🌆",
-                'max_guests': "How many guests can your property accommodate? 👥",
-                'bedrooms': "How many bedrooms does your property have? 🛏️",
-                'bathrooms': "How many bathrooms does your property have? 🚿",
-                'display_price': "What's your nightly rate? How much do you want to charge per night? 💰",
-                'title': "What would you like to title your property listing? Make it engaging! ✨",
-                'description': "Can you describe your property? What makes it special? 📝",
-                'amenities': "What amenities does your property offer? For example: wifi, kitchen, parking, pool, etc. ⭐",
-                'address': "What's the full address of your property? 📍",
-                'smoking_allowed': "What are your house rules? Do you allow smoking? 🚭",
-                'pets_allowed': "Are pets welcome at your property? 🐾",
-                'events_allowed': "Do you allow events or parties at your property? 🎉",
-                'children_welcome': "Are children welcome at your property? 👶",
-                'trust_level_1_discount': "What discount would you offer for Level 1 trust members? 💎",
-                'check_in_time_start': "What time do you prefer for check-ins? ⏰",
-                'check_out_time': "What time do you prefer for check-outs? ⏰"
-            }
-            
-            return fallback_questions.get(field_key, f"Tell me more about {highest_priority_field['name']}. What should I know? 🏡")
-        else:
-            # Generic fallback based on completion percentage
-            if completion_percentage < 40:
-                return "What makes your property special? Tell me about the space and what guests will love about it!"
-            elif completion_percentage < 70:
-                return "What amenities and features does your property offer that will make guests' stay memorable?"
-            else:
-                return "What's your hosting style like, and what policies do you want to set for guests?"
-    
-    def _generate_fallback_titles(self, property_data):
-        """Generate basic fallback titles when AI fails"""
-        property_type = property_data.get("property_type", "property").title()
-        city = property_data.get("city", "Great Location")
-        guests = property_data.get("max_guests", "Guests")
-        
-        return [
-            f"Beautiful {property_type} in {city}",
-            f"Comfortable Stay for {guests} Guests",
-            f"Perfect {property_type} Experience"
-        ]
-    
-    def _generate_fallback_descriptions(self, property_data):
-        """Generate basic fallback descriptions when AI fails"""
-        property_type = property_data.get("property_type", "property").title()
-        city = property_data.get("city", "a great location")
-        guests = property_data.get("max_guests", "guests")
-        
-        return [
-            f"Welcome to our beautiful {property_type.lower()} in {city}! This comfortable space accommodates up to {guests} guests and offers everything you need for a perfect stay. We've thoughtfully designed the space with your comfort in mind, providing all essential amenities for a memorable experience. Come and enjoy the charm of our {property_type.lower()} - we can't wait to host you!",
-            
-            f"This well-appointed {property_type.lower()} in {city} features comfortable accommodations for {guests} guests. The space includes modern amenities and thoughtful touches to ensure your stay is both comfortable and convenient. Located in {city}, you'll have easy access to local attractions while enjoying a peaceful retreat. Book now for an excellent stay experience!",
-            
-            f"Discover the perfect getaway at our {property_type.lower()} in {city}! Designed for comfort and relaxation, this space welcomes up to {guests} guests in a warm, inviting atmosphere. Whether you're here for business or leisure, you'll find everything you need for a wonderful stay. We look forward to sharing our special place with you and helping create lasting memories!"
-        ]
-    
-    def _validate_and_enhance_extraction(self, result):
-        """Enhanced validation with better error handling"""
-        if "extracted" in result:
-            result["extracted"] = self._validate_extracted_fields(result["extracted"])
-        
-        required_keys = ["extracted", "titles", "descriptions", "confidence_score"]
-        for key in required_keys:
-            if key not in result:
-                if key == "extracted":
-                    result[key] = {}
-                elif key in ["titles", "descriptions"]:
-                    result[key] = []
-                elif key == "confidence_score":
-                    result[key] = 0.5
-        
-        if "insights" not in result:
-            result["insights"] = {
-                "hosting_style": "friendly",
-                "property_vibe": "comfortable",
-                "target_guests": "leisure"
-            }
-        
-        return result
-    
-    def _validate_extracted_fields(self, extracted):
-        """Enhanced field validation with trust level support"""
+    def _validate_extracted_fields(self, extracted: dict) -> dict:
+        """Validate and clean extracted fields"""
         validated = {}
         
-        # Validate property type
+        # Property type validation
         valid_property_types = ['apartment', 'house', 'villa', 'cabin', 'loft', 'other']
         if extracted.get('property_type') in valid_property_types:
             validated['property_type'] = extracted['property_type']
         
-        # Validate place type
+        # Place type validation  
         valid_place_types = ['entire_place', 'private_room', 'shared_room']
         if extracted.get('place_type') in valid_place_types:
             validated['place_type'] = extracted['place_type']
         
-        # Validate numeric fields
-        numeric_fields = [
-            'bedrooms', 'bathrooms', 'beds', 'max_guests', 'display_price', 
-            'price_per_night', 'square_feet', 'minimum_stay', 'maximum_stay',
-            'trust_level_1_discount', 'trust_level_2_discount', 'trust_level_3_discount',
-            'trust_level_4_discount', 'trust_level_5_discount'
-        ]
-        
+        # Numeric field validation
+        numeric_fields = ['bedrooms', 'bathrooms', 'max_guests', 'display_price', 'price_per_night']
         for field in numeric_fields:
             if field in extracted:
                 try:
-                    value = float(extracted[field])
-                    if value >= 0:
-                        # Special validation for trust level discounts
-                        if 'trust_level' in field and 'discount' in field:
-                            validated[field] = min(50, max(0, int(value)))  # 0-50% range
-                        else:
-                            validated[field] = int(value) if value == int(value) else value
+                    value = int(float(extracted[field]))
+                    if value >= 0 and value <= 50:  # Reasonable range
+                        validated[field] = value
                 except (ValueError, TypeError):
                     pass
         
-        # Validate boolean fields
-        boolean_fields = [
-            'smoking_allowed', 'pets_allowed', 'events_allowed', 
-            'children_welcome', 'instant_book_enabled'
-        ]
+        # Boolean field validation
+        boolean_fields = ['smoking_allowed', 'pets_allowed', 'events_allowed', 'children_welcome', 'instant_book_enabled']
         for field in boolean_fields:
             if field in extracted and isinstance(extracted[field], bool):
                 validated[field] = extracted[field]
         
-        # Validate string fields
-        string_fields = [
-            'city', 'country', 'address', 'house_number', 'street', 'neighborhood', 
-            'title', 'description', 'check_in_time_start', 'check_out_time'
-        ]
+        # String field validation
+        string_fields = ['city', 'country', 'title', 'description', 'check_in_time_start', 'check_out_time']
         for field in string_fields:
             if field in extracted and isinstance(extracted[field], str) and extracted[field].strip():
                 validated[field] = extracted[field].strip()
         
-        # Validate amenities
-        valid_amenities = [
-            'wifi', 'kitchen', 'tv', 'air_conditioning', 'parking', 'pool', 
-            'washer', 'dryer', 'dishwasher', 'gym', 'hot_tub', 'balcony', 'garden'
-        ]
-        if 'amenities' in extracted and isinstance(extracted['amenities'], list):
-            validated['amenities'] = [
-                amenity for amenity in extracted['amenities'] 
-                if amenity in valid_amenities
-            ]
-        
         return validated
-
-    def _process_with_openai(self, user_input: str, conversation_context: Dict, extraction_config: Dict) -> Dict:
-        """Fallback processing using OpenAI."""
-        try:
-            # Build the prompt for OpenAI
-            system_prompt = f"""You are a friendly, enthusiastic AI property assistant helping users create property listings. 
-            
-Current completion: {conversation_context.get('completion_percentage', 0)}%
-Missing fields: {', '.join([field.get('name', '') for field in conversation_context.get('missing_fields', [])])}
-
-Previous conversation:
-{chr(10).join([f"User: {msg}" for msg in conversation_context.get('previous_responses', [])[-3:]])}
-
-Current user response: "{user_input}"
-
-Your task:
-1. Extract any property information from the user's response
-2. Provide a natural, conversational response that acknowledges what they said
-3. Ask for missing information in a friendly way
-4. Use emojis and be enthusiastic
-
-Respond in this format:
-{{
-    "extracted": {{"field_name": "value"}},
-    "question": "Your conversational response here",
-    "next_action": "continue_conversation|transition_to_guided|complete",
-    "reasoning": "Why you chose this response"
-}}"""
-
-            # Call OpenAI
-            response = openai.ChatCompletion.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_input}
-                ],
-                temperature=0.7,
-                max_tokens=500
-            )
-            
-            # Parse the response
-            ai_response = response.choices[0].message.content
-            try:
-                parsed_response = json.loads(ai_response)
-            except json.JSONDecodeError:
-                # Fallback if JSON parsing fails
-                parsed_response = {
-                    "extracted": {},
-                    "question": ai_response,
-                    "next_action": "continue_conversation",
-                    "reasoning": "AI provided conversational response"
-                }
-            
-            return {
-                'extracted_entities': [],
-                'user_intent': 'provide_information',
-                'sentiment_analysis': {'sentiment': 'neutral', 'confidence': 0.5},
-                'extracted_data': parsed_response.get("extracted", {}),
-                'follow_up_question': parsed_response.get("question", ""),
-                'confidence': 0.8
-            }
-            
-        except Exception as e:
-            print(f"OpenAI processing failed: {e}")
-            return {
-                'extracted_entities': [],
-                'user_intent': 'provide_information',
-                'sentiment_analysis': {'sentiment': 'neutral', 'confidence': 0.5},
-                'extracted_data': {},
-                'follow_up_question': "I'm having trouble understanding. Could you please tell me about your property?",
-                'confidence': 0.5
-            }
     
-    def _parse_ai_response(self, ai_content):
-        """Enhanced AI response parsing with multiple fallback strategies"""
+    def _parse_ai_response(self, ai_content: str) -> dict:
+        """Parse AI response with fallbacks"""
         try:
+            # Try direct JSON parsing
             return json.loads(ai_content)
         except json.JSONDecodeError:
             try:
-                # Try to extract JSON from markdown code blocks
+                # Try extracting JSON from markdown
                 json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', ai_content, re.DOTALL)
                 if json_match:
                     return json.loads(json_match.group(1))
                 
-                # Try to find any JSON object
+                # Try finding any JSON object
                 json_match = re.search(r'\{.*\}', ai_content, re.DOTALL)
                 if json_match:
                     return json.loads(json_match.group())
-                    
             except json.JSONDecodeError:
                 pass
             
-            # If it's just a plain text question, return it
-            if ai_content.strip() and '?' in ai_content:
-                return {"question": ai_content.strip()}
-            
             # Final fallback
             return {
-                "extracted": {},
-                "titles": ["Beautiful Property", "Comfortable Stay", "Perfect Location"],
-                "descriptions": ["A wonderful place to stay with great amenities."],
-                "confidence_score": 0.1,
-                "question": ai_content.strip() if ai_content.strip() else "Tell me more about your property!",
-                "error": "Could not parse AI response"
+                "extracted_data": {},
+                "follow_up_question": ai_content.strip() if ai_content.strip() else "Tell me more about your property!",
+                "confidence": 0.3,
+                "next_action": "continue_conversation"
             }
-
 @csrf_exempt
 @require_http_methods(["POST"])
 def validate_address(request):
